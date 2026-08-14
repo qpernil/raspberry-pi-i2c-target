@@ -119,6 +119,24 @@ make -C kernel
 
 Rebuild the module after every target-kernel update.
 
+### Versioned prebuilt target module
+
+`prebuilt/aarch64/6.18.39+rpt-rpi-v8/` contains a module built on a Raspberry
+Pi 4 for the exact Raspberry Pi OS ARM64 kernel named by the directory. Kernel
+modules are tied to their kernel release/configuration, so verify an exact
+match before using it:
+
+```sh
+test "$(uname -r)" = "6.18.39+rpt-rpi-v8"
+sudo ./prebuilt/aarch64/target-driver \
+  0x13 \
+  ./prebuilt/aarch64/6.18.39+rpt-rpi-v8
+```
+
+If the test fails, build `kernel/` against headers matching the target instead
+of loading this prebuilt module. Checksums and build details accompany the
+artifacts in the versioned directory.
+
 ## Run the kernel target
 
 Start the target first:

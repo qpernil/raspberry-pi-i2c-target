@@ -111,6 +111,7 @@ struct bsc_target {
 	size_t tx_len;
 	size_t tx_loaded;
 	bool tx_queued;
+	bool tx_busy_seen;
 
 	struct bsc_target_stats stats;
 	struct hrtimer timer;
@@ -163,6 +164,7 @@ static void bsc_reset_io_locked(struct bsc_target *bsc)
 	bsc->tx_len = 0;
 	bsc->tx_loaded = 0;
 	bsc->tx_queued = false;
+	bsc->tx_busy_seen = false;
 }
 
 static void bsc_disable_locked(struct bsc_target *bsc)
@@ -240,6 +242,7 @@ static void bsc_finish_tx_locked(struct bsc_target *bsc, size_t consumed)
 	bsc->tx_queued = false;
 	bsc->tx_len = 0;
 	bsc->tx_loaded = 0;
+	bsc->tx_busy_seen = false;
 
 	/* A short controller read leaves stale bytes in the hardware FIFO. */
 	if (short_read)
@@ -273,6 +276,8 @@ static void bsc_service_locked(struct bsc_target *bsc)
 	flags = bsc_read(bsc, FR);
 	rx_busy = flags & FR_RXBUSY;
 	tx_busy = flags & FR_TXBUSY;
+	if (tx_busy)
+		bsc->tx_busy_seen = true;
 
 	if (!rx_busy && (bsc->rx_work_len || bsc->rx_overflowed))
 		bsc_finish_rx_locked(bsc);
@@ -281,7 +286,15 @@ static void bsc_service_locked(struct bsc_target *bsc)
 		return;
 
 	consumed = bsc_tx_consumed_locked(bsc);
-	if (!tx_busy && consumed)
+	/*
+	 * The BSC can move the first queued byte out of the FIFO before a
+	 * controller read begins. TXFLEVEL then falls by one while TXBUSY is
+	 * still clear; treating that preload as a completed transfer discards
+	 * the first response byte and causes an underrun on the real read.
+	 * Require evidence that a transmit transaction actually became active
+	 * before interpreting TXBUSY clearing as STOP/completion.
+	 */
+	if (bsc->tx_busy_seen && !tx_busy && consumed)
 		bsc_finish_tx_locked(bsc, consumed);
 }
 
@@ -509,6 +522,7 @@ static ssize_t bsc_queue_response(struct file *file, const char __user *buffer,
 	bsc->tx_len = count;
 	bsc->tx_loaded = 0;
 	bsc->tx_queued = true;
+	bsc->tx_busy_seen = false;
 	bsc_refill_tx_locked(bsc);
 	spin_unlock_irqrestore(&bsc->lock, flags);
 	ret = count;

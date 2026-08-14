@@ -70,6 +70,11 @@ The driver uses two mechanisms:
 The timer exists only while the device is open. Its Device Tree range is 20–500
 µs through the `poll_ns` overlay parameter.
 
+The BSC may preload the first queued response byte into its transmit shifter
+while the bus is idle. The driver therefore requires observing `TXBUSY` before
+it treats a later idle state as transmit completion; a FIFO-level change alone
+does not prove that the controller consumed a byte.
+
 ## Request/response boundary
 
 Userspace cannot inspect a controller write and prepare a reply during an
