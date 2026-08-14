@@ -10,7 +10,7 @@ keywords = ["raspberry-pi", "i2c", "embedded-linux"]
 categories = ["embedded", "hardware-support"]
 publish = false
 
-# Deliberately dependency-free. Both binaries call Linux interfaces directly.
+# Deliberately dependency-free. All binaries call Linux interfaces directly.
 
 [[bin]]
 name = "controller"

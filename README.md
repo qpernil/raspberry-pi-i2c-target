@@ -34,6 +34,8 @@ lifecycle and never changes the boot configuration.
 
 Pi 5 is supported as a controller, not as a target. The target peripheral has a
 16-byte FIFO, no DMA, no clock stretching, and only supports 7-bit addresses.
+The Rust tools build on both Raspberry Pi OS and Ubuntu. The kernel target
+module must always be built on the target machine against its running kernel.
 
 ## Wiring
 
@@ -103,44 +105,56 @@ i2cdetect -y 1
 
 The target appears only while its character device is open.
 
-## Build
+## Source and builds
 
-The Rust tools have no Cargo dependencies:
+GitHub `main` is the source of truth. Clone it once on each machine and update
+that checkout rather than copying source files between boards:
+
+```sh
+git clone https://github.com/qpernil/raspberry-pi-i2c-target.git
+cd raspberry-pi-i2c-target
+
+# Later updates
+git pull --ff-only
+```
+
+The Rust programs have no Cargo dependencies. Raspberry Pi OS ARM64 users can
+use the checked-in executables under `prebuilt/aarch64/`; they are built from a
+clean Git checkout on Raspberry Pi OS. Verify them with:
+
+```sh
+(cd prebuilt/aarch64 && sha256sum -c SHA256SUMS)
+```
+
+Ubuntu users should build the Rust programs locally:
 
 ```sh
 cargo build --release --locked
 ```
 
-Building the target module requires a compiler, `make`, `dtc`, and headers that
-match the running target kernel:
+The kernel module and overlays are never distributed as prebuilts. On every Pi
+3 or Pi 4 target, build them locally so the Makefile uses the running kernel's
+headers automatically:
 
 ```sh
 test -e "/lib/modules/$(uname -r)/build"
 make -C kernel
 ```
 
-Rebuild the module after every target-kernel update.
-
-### Build the target module locally
-
-Kernel modules are tied to their kernel release and configuration, so this
-project does not distribute a prebuilt target module. Build it on each target
-Pi; the Makefile automatically uses the headers for its running kernel:
-
-```sh
-test -e "/lib/modules/$(uname -r)/build"
-make -C kernel
-sudo ./prebuilt/aarch64/target-driver
-```
-
-The loader defaults to `kernel/`, prints that selection at startup, and refuses
-to load if the module or model-specific overlay is missing or older than its
-source. An explicit artifact-directory argument remains available for advanced
-use.
+Re-run `make -C kernel` after pulling driver changes or installing a new kernel.
+The loader defaults to `kernel/`, prints the selected directory, and refuses to
+load missing artifacts or outputs older than their source. An explicit artifact
+directory remains available for advanced use.
 
 ## Run the kernel target
 
-Start the target first:
+Start the target first. Use the checked-in Rust executable on Raspberry Pi OS:
+
+```sh
+sudo ./prebuilt/aarch64/target-driver
+```
+
+Or use the locally built executable on Ubuntu:
 
 ```sh
 sudo ./target/release/target-driver
@@ -155,7 +169,8 @@ sudo ./target/release/target-driver 0x24 ./kernel
 
 The Rust application detects Pi 3 versus Pi 4, applies the matching runtime
 overlay, loads the module, opens `/dev/bsc-target0`, and removes the module and
-overlay on ordinary exit.
+overlay on ordinary exit. Commands below use `./target/release/target-driver`;
+Raspberry Pi OS users may substitute `./prebuilt/aarch64/target-driver`.
 
 ### Idle pin policy
 
@@ -199,6 +214,9 @@ With the target responder running, invoke this on the controller:
   0x13 \
   /dev/i2c-1
 ```
+
+On Raspberry Pi OS, the equivalent checked-in executable is
+`./prebuilt/aarch64/controller-long`.
 
 The controller writes one message, waits 20 ms for userspace to queue a reply,
 then reads `ACK: ` followed by the original message. Requests may contain up to

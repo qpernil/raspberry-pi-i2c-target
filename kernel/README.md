@@ -39,18 +39,23 @@ merely leaves the inert module and overlay registered.
 ## Build
 
 ```sh
-cd ~/raspberry-i2c/kernel
-make
-cd ..
-cargo build --release --bin target-driver
+git clone https://github.com/qpernil/raspberry-pi-i2c-target.git
+cd raspberry-pi-i2c-target
+test -e "/lib/modules/$(uname -r)/build"
+make -C kernel
 ```
+
+This project intentionally does not distribute prebuilt kernel modules. The
+Makefile uses `/lib/modules/$(uname -r)/build`, ensuring that the module is built
+against the running target's headers. Rebuild after every kernel update.
 
 Do not copy either overlay into the boot configuration. Run the responder as
 root; it detects Pi 3 versus Pi 4, applies the matching runtime overlay, loads
 the module, and opens the character device:
 
 ```sh
-sudo ./target/release/target-driver
+sudo ./prebuilt/aarch64/target-driver  # Raspberry Pi OS ARM64
+# or: sudo ./target/release/target-driver  # locally built Rust executable
 ```
 
 The default address is `0x13`. An alternative address and kernel artifact
