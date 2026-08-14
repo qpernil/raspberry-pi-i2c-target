@@ -186,17 +186,69 @@ fn parse_address(value: Option<&String>) -> io::Result<u16> {
     Ok(parsed)
 }
 
+fn project_root(executable: &Path) -> io::Result<&Path> {
+    executable
+        .ancestors()
+        .skip(1)
+        .find(|directory| {
+            directory.join("Cargo.toml").is_file() && directory.join("kernel").is_dir()
+        })
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "cannot locate project root"))
+}
+
 fn infer_kernel_directory(value: Option<&String>) -> io::Result<PathBuf> {
     if let Some(value) = value {
         return fs::canonicalize(value);
     }
     let executable = env::current_exe()?;
-    let project = executable
-        .parent()
-        .and_then(Path::parent)
-        .and_then(Path::parent)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "cannot locate project root"))?;
+    let project = project_root(&executable)?;
     Ok(project.join("kernel"))
+}
+
+fn newer_source(output: &Path, sources: &[PathBuf]) -> io::Result<Option<PathBuf>> {
+    let output_time = output.metadata()?.modified()?;
+    for source in sources {
+        if source.is_file() && source.metadata()?.modified()? > output_time {
+            return Ok(Some(source.clone()));
+        }
+    }
+    Ok(None)
+}
+
+fn ensure_artifacts_current(directory: &Path, hardware: Hardware) -> io::Result<()> {
+    let module = directory.join(MODULE_FILE);
+    let overlay = directory.join(format!("{}.dtbo", hardware.overlay));
+    if !module.is_file() || !overlay.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!(
+                "driver artifacts are missing in {}; run `make -C {}` first",
+                directory.display(),
+                directory.display()
+            ),
+        ));
+    }
+
+    let makefile = directory.join("Makefile");
+    let module_sources = [
+        directory.join("bcm27xx_bsc_target.c"),
+        directory.join("bsc_target_uapi.h"),
+        makefile.clone(),
+    ];
+    let overlay_sources = [
+        directory.join(format!("{}-overlay.dts", hardware.overlay)),
+        makefile,
+    ];
+    let stale_source =
+        newer_source(&module, &module_sources)?.or(newer_source(&overlay, &overlay_sources)?);
+    if let Some(source) = stale_source {
+        return Err(io::Error::other(format!(
+            "driver artifact is older than {}; run `make -C {}` before starting the target",
+            source.display(),
+            directory.display()
+        )));
+    }
+    Ok(())
 }
 
 fn command_output(program: &str, arguments: &[&OsStr]) -> io::Result<Output> {
@@ -294,18 +346,8 @@ impl DriverGuard {
         idle_pull: IdlePull,
     ) -> io::Result<Self> {
         ensure_unloaded()?;
+        ensure_artifacts_current(kernel_directory, hardware)?;
         let module = kernel_directory.join(MODULE_FILE);
-        let overlay_file = kernel_directory.join(format!("{}.dtbo", hardware.overlay));
-        if !module.is_file() || !overlay_file.is_file() {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!(
-                    "driver artifacts are missing in {}; run `make -C {}` first",
-                    kernel_directory.display(),
-                    kernel_directory.display()
-                ),
-            ));
-        }
 
         let mut guard = Self {
             overlay: hardware.overlay,
@@ -442,9 +484,9 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
+    let hardware = Hardware::detect()?;
     let address = parse_address(options.address.as_ref())?;
     let kernel_directory = infer_kernel_directory(options.kernel_directory.as_ref())?;
-    let hardware = Hardware::detect()?;
     unsafe {
         signal(SIGINT, stop as *const () as usize);
         signal(SIGTERM, stop as *const () as usize);
@@ -455,6 +497,7 @@ fn main() -> io::Result<()> {
         hardware.name,
         options.idle_pull.name()
     );
+    println!("using driver artifacts from {}", kernel_directory.display());
     let mut guard = DriverGuard::load(hardware, &kernel_directory, address, options.idle_pull)?;
     let serve_result = serve();
     let unload_result = guard.unload();

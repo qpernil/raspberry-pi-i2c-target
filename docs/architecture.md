@@ -65,7 +65,8 @@ The driver uses two mechanisms:
 1. Receive/transmit FIFO thresholds invoke a hard IRQ handler, which drains or
    refills the FIFO without waiting for userspace scheduling.
 2. A configurable high-resolution timer (100 µs by default) catches receive
-   tails below the interrupt threshold and detects `RXBUSY`/`TXBUSY` completion.
+   tails below the interrupt threshold, detects receive completion, and releases
+   fully loaded responses when the transmit FIFO becomes empty.
 
 The timer exists only while the device is open. Its Device Tree range is 20–500
 µs through the `poll_ns` overlay parameter.

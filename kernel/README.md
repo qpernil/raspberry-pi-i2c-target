@@ -5,8 +5,9 @@ target FIFO from interrupt context. It supports Raspberry Pi 3B/3B+ and Pi 4B.
 
 The hardware has a 16-byte FIFO, no DMA, no clock stretching, and only 7-bit
 target addresses. The driver combines FIFO threshold interrupts with a 100 us
-high-resolution timer. The timer drains sub-threshold receive tails and detects
-transaction completion when RXBUSY/TXBUSY clears.
+high-resolution timer. The timer drains sub-threshold receive tails, detects
+receive completion, and releases fully loaded responses when the transmit FIFO
+becomes empty.
 
 ## Character-device interface
 
@@ -88,8 +89,9 @@ sudo ./target/release/target-driver --unload
 This command is also safe when nothing is loaded. If another process has
 `/dev/bsc-target0` open, module removal fails and the overlay is left in place.
 
-This remains experimental until tested on a wired bus. Retain CRC, timeouts,
-error counters, and controller retries even when the kernel driver is used.
-The driver substantially reduces scheduling risk by servicing FIFO thresholds
-in hard-IRQ context, but this peripheral has no clock stretching or DMA, so a
+Initial wired tests at 400 kHz have passed, including 1024-byte requests, but
+sustained-load qualification remains pending. Retain CRC, timeouts, error
+counters, and controller retries even when the kernel driver is used. The
+driver substantially reduces scheduling risk by servicing FIFO thresholds in
+hard-IRQ context, but this peripheral has no clock stretching or DMA, so a
 general-purpose Linux kernel cannot provide a mathematical no-overrun guarantee.
