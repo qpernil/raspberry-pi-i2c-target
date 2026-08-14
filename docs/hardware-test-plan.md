@@ -1,7 +1,25 @@
 # Hardware and oscilloscope validation plan
 
-The software lifecycle has been validated without a cable. This plan covers the
-remaining electrical and sustained-transfer qualification.
+## Initial wired result — 2026-08-14
+
+A Raspberry Pi 5 controller running Ubuntu communicated through `/dev/i2c-1`
+with a Raspberry Pi 3B+ target running kernel `6.18.39+rpt-rpi-v8`. The
+controller was configured for 400 kHz. A Siglent SDS804X HD with compensated
+10× probes and a 20 MHz bandwidth limit decoded the bus during diagnosis.
+
+The verified responder passed application payload sizes 1, 10, 11, 12, 64,
+and 1024 bytes. Their `ACK: ` responses were 6, 15, 16, 17, 69, and 1029 bytes,
+covering both sides of the 16-byte hardware FIFO boundary and repeated FIFO
+refills. Final counters after that sequence were:
+
+```text
+rx_transactions=6 rx_bytes=1122 rx_overruns=0 rx_dropped=0
+tx_transactions=6 tx_bytes=1152 tx_underruns=0 tx_short_reads=0
+```
+
+This is an initial functional result, not completion of the qualification plan
+below. The 100 kHz matrix, electrical measurements, randomized sustained load,
+and deliberate CPU/storage/network pressure remain to be run.
 
 ## Equipment
 

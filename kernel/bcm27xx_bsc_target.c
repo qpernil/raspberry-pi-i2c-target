@@ -53,8 +53,6 @@
 #define FR_RXFF BIT(3)
 #define FR_TXFE BIT(4)
 #define FR_RXBUSY BIT(5)
-#define FR_TXLEVEL_SHIFT 6
-#define FR_TXLEVEL_MASK GENMASK(10, 6)
 
 #define IRQ_RX BIT(0)
 #define IRQ_TX BIT(1)
@@ -111,7 +109,6 @@ struct bsc_target {
 	size_t tx_len;
 	size_t tx_loaded;
 	bool tx_queued;
-	bool tx_busy_seen;
 
 	struct bsc_target_stats stats;
 	struct hrtimer timer;
@@ -126,11 +123,6 @@ static inline u32 bsc_read(struct bsc_target *bsc, u32 reg)
 static inline void bsc_write(struct bsc_target *bsc, u32 reg, u32 value)
 {
 	writel(value, bsc->regs + reg);
-}
-
-static size_t bsc_tx_level(struct bsc_target *bsc)
-{
-	return (bsc_read(bsc, FR) & FR_TXLEVEL_MASK) >> FR_TXLEVEL_SHIFT;
 }
 
 static void bsc_set_interrupts_locked(struct bsc_target *bsc)
@@ -164,7 +156,6 @@ static void bsc_reset_io_locked(struct bsc_target *bsc)
 	bsc->tx_len = 0;
 	bsc->tx_loaded = 0;
 	bsc->tx_queued = false;
-	bsc->tx_busy_seen = false;
 }
 
 static void bsc_disable_locked(struct bsc_target *bsc)
@@ -223,13 +214,6 @@ static void bsc_finish_rx_locked(struct bsc_target *bsc)
 	bsc->rx_overflowed = false;
 }
 
-static size_t bsc_tx_consumed_locked(struct bsc_target *bsc)
-{
-	size_t level = min_t(size_t, bsc_tx_level(bsc), bsc->tx_loaded);
-
-	return bsc->tx_loaded - level;
-}
-
 static void bsc_finish_tx_locked(struct bsc_target *bsc, size_t consumed)
 {
 	bool short_read = consumed < bsc->tx_len;
@@ -242,7 +226,6 @@ static void bsc_finish_tx_locked(struct bsc_target *bsc, size_t consumed)
 	bsc->tx_queued = false;
 	bsc->tx_len = 0;
 	bsc->tx_loaded = 0;
-	bsc->tx_busy_seen = false;
 
 	/* A short controller read leaves stale bytes in the hardware FIFO. */
 	if (short_read)
@@ -258,8 +241,6 @@ static void bsc_service_locked(struct bsc_target *bsc)
 	u32 status;
 	u32 flags;
 	bool rx_busy;
-	bool tx_busy;
-	size_t consumed;
 
 	status = bsc_read(bsc, RSR);
 	if (status & RSR_OE)
@@ -275,9 +256,6 @@ static void bsc_service_locked(struct bsc_target *bsc)
 
 	flags = bsc_read(bsc, FR);
 	rx_busy = flags & FR_RXBUSY;
-	tx_busy = flags & FR_TXBUSY;
-	if (tx_busy)
-		bsc->tx_busy_seen = true;
 
 	if (!rx_busy && (bsc->rx_work_len || bsc->rx_overflowed))
 		bsc_finish_rx_locked(bsc);
@@ -285,17 +263,18 @@ static void bsc_service_locked(struct bsc_target *bsc)
 	if (!bsc->tx_queued)
 		return;
 
-	consumed = bsc_tx_consumed_locked(bsc);
 	/*
-	 * The BSC can move the first queued byte out of the FIFO before a
-	 * controller read begins. TXFLEVEL then falls by one while TXBUSY is
-	 * still clear; treating that preload as a completed transfer discards
-	 * the first response byte and causes an underrun on the real read.
-	 * Require evidence that a transmit transaction actually became active
-	 * before interpreting TXBUSY clearing as STOP/completion.
+	 * TXBUSY describes movement between the FIFO and the serializer, not a
+	 * complete I2C controller transaction. In particular, it may clear
+	 * between bytes. Resetting the peripheral on that transition discards
+	 * the first queued byte or truncates a byte already being shifted.
+	 *
+	 * Once every response byte has entered the hardware and TXFE is set,
+	 * release the software slot without resetting the peripheral. The final
+	 * byte may still be in the serializer and must be allowed to finish.
 	 */
-	if (bsc->tx_busy_seen && !tx_busy && consumed)
-		bsc_finish_tx_locked(bsc, consumed);
+	if (bsc->tx_loaded == bsc->tx_len && (flags & FR_TXFE))
+		bsc_finish_tx_locked(bsc, bsc->tx_len);
 }
 
 static irqreturn_t bsc_irq(int irq, void *data)
@@ -522,7 +501,6 @@ static ssize_t bsc_queue_response(struct file *file, const char __user *buffer,
 	bsc->tx_len = count;
 	bsc->tx_loaded = 0;
 	bsc->tx_queued = true;
-	bsc->tx_busy_seen = false;
 	bsc_refill_tx_locked(bsc);
 	spin_unlock_irqrestore(&bsc->lock, flags);
 	ret = count;

@@ -70,10 +70,11 @@ The driver uses two mechanisms:
 The timer exists only while the device is open. Its Device Tree range is 20–500
 µs through the `poll_ns` overlay parameter.
 
-The BSC may preload the first queued response byte into its transmit shifter
-while the bus is idle. The driver therefore requires observing `TXBUSY` before
-it treats a later idle state as transmit completion; a FIFO-level change alone
-does not prove that the controller consumed a byte.
+The BSC may preload bytes into its transmit serializer, and `TXBUSY` does not
+reliably describe a complete I2C transaction. The driver therefore releases a
+queued response only after all of its bytes have been loaded and the transmit
+FIFO is empty. It does not reset the peripheral at that boundary because the
+final byte may still be shifting onto the wire.
 
 ## Request/response boundary
 

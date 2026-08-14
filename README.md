@@ -20,8 +20,10 @@ lifecycle and never changes the boot configuration.
 > **Hardware status:** module compilation, MMIO/IRQ discovery, pin multiplexing,
 > character-device lifecycle, FIFO queuing, exclusive-open behavior, configurable
 > idle pulls, cleanup, and `SIGKILL` final-close handling have been exercised on
-> Pi 3 and Pi 4 hardware. End-to-end wired transfers and oscilloscope measurements
-> are still pending.
+> Pi 3 and Pi 4 hardware. Initial Pi 5-controller to Pi 3B+-target wired tests at
+> the configured 400 kHz rate passed response sizes from 6 through 1029 bytes
+> with no drops, overruns, underruns, or short reads. Sustained-load and complete
+> signal-integrity qualification remain pending.
 
 ## Supported hardware
 
@@ -255,8 +257,9 @@ while the character device is closed.
 - This is a single-controller, single-responder demonstration. Production use
   should add framing, lengths, checksums/CRC, sequence numbers, timeouts, retries,
   and idempotency.
-- Real wired validation at 100 kHz and 400 kHz is still pending. See the
-  [hardware validation plan](docs/hardware-test-plan.md).
+- Initial wired functional validation at the configured 400 kHz rate has
+  passed. The 100 kHz matrix, sustained load, and full signal-integrity work in
+  the [hardware validation plan](docs/hardware-test-plan.md) remain pending.
 
 ## Troubleshooting
 
