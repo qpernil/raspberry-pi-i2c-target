@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2837";
+
+	fragment@0 {
+		target = <&gpio>;
+		__overlay__ {
+			bsc_target_active: bsc-target-active-pins {
+				brcm,pins = <18 19>;
+				brcm,function = <7>; /* ALT3: SDA/SCL */
+				brcm,pull = <0 0>;
+			};
+
+			bsc_target_idle: bsc-target-idle-pins {
+				brcm,pins = <18 19>;
+				brcm,function = <0>; /* input */
+				brcm,pull = <0 0>;
+			};
+		};
+	};
+
+	fragment@1 {
+		target = <&soc>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			bsc_target: bsc-target@7e214000 {
+				compatible = "brcm,bcm27xx-bsc-target";
+				reg = <0x7e214000 0x40>;
+				interrupt-parent = <&intc>;
+				interrupts = <2 11>; /* VC peripheral IRQ 43 */
+				pinctrl-names = "active", "idle";
+				pinctrl-0 = <&bsc_target_active>;
+				pinctrl-1 = <&bsc_target_idle>;
+				brcm,slave-address = <0x13>;
+				brcm,poll-interval-ns = <100000>;
+				status = "okay";
+			};
+		};
+	};
+
+	__overrides__ {
+		addr = <&bsc_target>, "brcm,slave-address:0";
+		poll_ns = <&bsc_target>, "brcm,poll-interval-ns:0";
+		idle_pull = <&bsc_target_idle>, "brcm,pull:0",
+			    <&bsc_target_idle>, "brcm,pull:4";
+	};
+};

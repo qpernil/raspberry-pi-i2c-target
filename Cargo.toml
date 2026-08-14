@@ -1,0 +1,29 @@
+[package]
+name = "raspberry-i2c-link"
+version = "0.1.0"
+edition = "2021"
+description = "Raspberry Pi I2C target driver tools and controller examples"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/qpernil/raspberry-pi-i2c-target"
+readme = "README.md"
+keywords = ["raspberry-pi", "i2c", "embedded-linux"]
+categories = ["embedded", "hardware-support"]
+publish = false
+
+# Deliberately dependency-free. Both binaries call Linux interfaces directly.
+
+[[bin]]
+name = "controller"
+path = "src/bin/controller.rs"
+
+[[bin]]
+name = "target"
+path = "src/bin/target.rs"
+
+[[bin]]
+name = "target-driver"
+path = "src/bin/target-driver.rs"
+
+[[bin]]
+name = "controller-long"
+path = "src/bin/controller-long.rs"

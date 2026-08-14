@@ -1,0 +1,12 @@
+/target/
+.DS_Store
+
+# Out-of-tree kernel build products
+kernel/.*.cmd
+kernel/*.dtbo
+kernel/*.ko
+kernel/*.mod
+kernel/*.mod.c
+kernel/*.o
+kernel/Module.symvers
+kernel/modules.order
