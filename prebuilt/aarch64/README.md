@@ -14,7 +14,7 @@ development machines.
 | `controller-long` | Long-message controller for the kernel target driver | `caaf31524ccbf6c8cf9ec0151c61a6eccce822d2` |
 | `target` | Direct `/dev/mem` FIFO-sized target demonstration | `caaf31524ccbf6c8cf9ec0151c61a6eccce822d2` |
 | `target-driver` | Kernel module/overlay lifecycle, echo, and receive-only modes | `223f21cbd01eab5b3461b61327576dad61bf9cbc` |
-| `virtual-display` | Independent SSD1306/SH1106 SDL viewer with optional GPIO outputs | `223f21cbd01eab5b3461b61327576dad61bf9cbc` |
+| `virtual-display` | Independent SSD1306/SH1106 SDL viewer with default GPIO5/GPIO26 outputs | `1e2201f6481215ae54077def6af8941a113469d8` |
 
 Verify the files before use:
 
