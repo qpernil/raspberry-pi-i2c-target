@@ -4,7 +4,7 @@
 
 A Raspberry Pi 5 controller running Ubuntu communicated through `/dev/i2c-1`
 with a Raspberry Pi 3B+ target running kernel `6.18.39+rpt-rpi-v8`. The
-controller was configured for 400 kHz. A Siglent SDS804X HD with compensated
+controller was configured for 400 kHz. A Siglent SDS824X HD with compensated
 10× probes and a 20 MHz bandwidth limit decoded the bus during diagnosis.
 
 The verified responder passed application payload sizes 1, 10, 11, 12, 64,
@@ -17,6 +17,21 @@ rx_transactions=6 rx_bytes=1122 rx_overruns=0 rx_dropped=0
 tx_transactions=6 tx_bytes=1152 tx_underruns=0 tx_short_reads=0
 ```
 
+## Virtual Trezor receive-only result — 2026-08-18
+
+A Raspberry Pi 4 Virtual Trezor controller was tested against two Pi 3 targets
+on the same physical bus, activated one at a time at address `0x3c`. The scope
+measured 400 kHz SCL. Each target received 135,218 bytes of SSD1306-compatible
+traffic with `rx_overruns=0`, `rx_dropped=0`, and no queued or transmitted
+responses. The byte total comprised a 26-byte initialization transaction and
+131 pairs of 7-byte address-window plus 1,025-byte framebuffer writes.
+
+The targets exposed 210 and 225 userspace records for that identical byte
+total. Back-to-back controller writes may therefore be combined when the BSC
+completion timer does not observe their short idle gap. Protocol consumers
+must parse the byte stream without assuming one character-device `read()` per
+controller `write()`.
+
 This is an initial functional result, not completion of the qualification plan
 below. The 100 kHz matrix, electrical measurements, randomized sustained load,
 and deliberate CPU/storage/network pressure remain to be run.
@@ -26,7 +41,7 @@ and deliberate CPU/storage/network pressure remain to be run.
 - One Raspberry Pi controller with `/dev/i2c-1` enabled
 - One Pi 3B/3B+ or Pi 4B target
 - Three jumper wires: SDA, SCL, and ground
-- Siglent SDS804X HD oscilloscope
+- Siglent SDS824X HD oscilloscope
 - Two passive probes with short ground connections
 
 ## Safety and wiring check
@@ -82,6 +97,41 @@ Repeat at the configured 400 kHz controller rate. Record:
 Do not add target-side pull-ups unless measured rise time requires them. If extra
 pull-up strength is needed, calculate the combined resistance rather than adding
 an arbitrary second pair.
+
+### Verify the physical controller clock
+
+Treat the requested adapter rate and the physical SCL rate as separate
+measurements. Measure rising edge to rising edge within an uninterrupted clock
+burst; do not use SDA transition frequency or average across transaction gaps.
+Expected SCL periods are 10 µs at 100 kHz and 2.5 µs at 400 kHz.
+
+A Pi 4 controller test found a controller-side clock mismatch independent of
+the target and this target driver. With
+`i2c_arm_baudrate=400000`, Linux reported a 400 kHz I²C clock and programmed
+the BSC divider to 1250 (`0x4e2`) based on a 500 MHz parent clock. Raspberry Pi
+firmware nevertheless reduced the physical core clock to its 200 MHz idle
+minimum. The oscilloscope measured 6.25 µs rising edge to rising edge:
+
+```text
+500 MHz / 1250 = 400 kHz  (rate assumed when programming the divider)
+200 MHz / 1250 = 160 kHz  (physical idle SCL rate)
+```
+
+On that controller, setting `core_freq_min=500` under `[all]` in
+`/boot/firmware/config.txt` kept the parent clock at 500 MHz and restored the
+physical 400 kHz rate. This controller-specific workaround modestly increases
+idle power; it is not a target-driver requirement. Useful Pi 4 diagnostics are:
+
+```sh
+vcgencmd measure_clock core
+sudo grep -E 'fe804000.i2c|i2c_div' /sys/kernel/debug/clk/clk_summary
+sudo devmem 0xfe804014 32
+```
+
+The final command reads the Pi 4 BSC1 divider register and is not portable to
+other controller models. Because the target hardware used here cannot stretch
+SCL, a stable discrepancy between the requested and measured rates should be
+investigated on the controller before attributing it to the target driver.
 
 ## Phase 4: sustained load
 
