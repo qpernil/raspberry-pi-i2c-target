@@ -56,9 +56,9 @@
 
 #define IRQ_RX BIT(0)
 #define IRQ_TX BIT(1)
-#define IRQ_RT BIT(2)
+#define IRQ_BREAK BIT(2)
 #define IRQ_OE BIT(3)
-#define IRQ_BASE (IRQ_RX | IRQ_RT | IRQ_OE)
+#define IRQ_BASE (IRQ_RX | IRQ_BREAK | IRQ_OE)
 #define IRQ_ALL (IRQ_BASE | IRQ_TX)
 
 #define IFLS_TX_HALF 2
@@ -67,13 +67,13 @@
 
 #define BSC_FIFO_SIZE 16
 #define BSC_MAX_TRANSFER 8192
-#define BSC_RX_SLOTS 4
+#define BSC_RX_SLOTS 1024
 #define BSC_DEFAULT_POLL_NS 100000
 #define BSC_MIN_POLL_NS 20000
 #define BSC_MAX_POLL_NS 500000
 
 struct bsc_rx_slot {
-	size_t len;
+	u32 len;
 	u8 data[BSC_MAX_TRANSFER];
 };
 
@@ -100,7 +100,8 @@ struct bsc_target {
 	u8 rx_work[BSC_MAX_TRANSFER];
 	size_t rx_work_len;
 	bool rx_overflowed;
-	struct bsc_rx_slot rx_slots[BSC_RX_SLOTS];
+	struct bsc_rx_slot *rx_slots;
+	u8 rx_read[BSC_MAX_TRANSFER];
 	u32 rx_head;
 	u32 rx_tail;
 	u32 rx_count;
@@ -197,9 +198,13 @@ static void bsc_finish_rx_locked(struct bsc_target *bsc)
 
 	if (bsc->rx_overflowed) {
 		bsc->stats.rx_overruns++;
-	} else if (bsc->rx_count == BSC_RX_SLOTS) {
-		bsc->stats.rx_dropped++;
 	} else {
+		if (bsc->rx_count == BSC_RX_SLOTS) {
+			/* Keep the newest traffic when userspace temporarily falls behind. */
+			bsc->rx_head = (bsc->rx_head + 1) % BSC_RX_SLOTS;
+			bsc->rx_count--;
+			bsc->stats.rx_dropped++;
+		}
 		slot = &bsc->rx_slots[bsc->rx_tail];
 		slot->len = bsc->rx_work_len;
 		memcpy(slot->data, bsc->rx_work, slot->len);
@@ -424,21 +429,20 @@ static ssize_t bsc_read_message(struct file *file, char __user *buffer,
 	spin_lock_irqsave(&bsc->lock, flags);
 	slot = &bsc->rx_slots[bsc->rx_head];
 	len = slot->len;
-	spin_unlock_irqrestore(&bsc->lock, flags);
-
 	if (count < len) {
+		spin_unlock_irqrestore(&bsc->lock, flags);
 		ret = -EMSGSIZE;
 		goto out_unlock;
 	}
-	if (copy_to_user(buffer, slot->data, len)) {
-		ret = -EFAULT;
-		goto out_unlock;
-	}
-
-	spin_lock_irqsave(&bsc->lock, flags);
+	memcpy(bsc->rx_read, slot->data, len);
 	bsc->rx_head = (bsc->rx_head + 1) % BSC_RX_SLOTS;
 	bsc->rx_count--;
 	spin_unlock_irqrestore(&bsc->lock, flags);
+
+	if (copy_to_user(buffer, bsc->rx_read, len)) {
+		ret = -EFAULT;
+		goto out_unlock;
+	}
 	ret = len;
 
 out_unlock:
@@ -601,6 +605,13 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RO(stats);
 
+static void bsc_free_rx_slots(void *data)
+{
+	struct bsc_target *bsc = data;
+
+	kvfree(bsc->rx_slots);
+}
+
 static int bsc_probe(struct platform_device *pdev)
 {
 	struct bsc_target *bsc;
@@ -613,6 +624,13 @@ static int bsc_probe(struct platform_device *pdev)
 	if (!bsc)
 		return -ENOMEM;
 	bsc->dev = &pdev->dev;
+	bsc->rx_slots = kvcalloc(BSC_RX_SLOTS, sizeof(*bsc->rx_slots),
+				 GFP_KERNEL);
+	if (!bsc->rx_slots)
+		return -ENOMEM;
+	ret = devm_add_action_or_reset(&pdev->dev, bsc_free_rx_slots, bsc);
+	if (ret)
+		return ret;
 	platform_set_drvdata(pdev, bsc);
 
 	resource = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -679,8 +697,9 @@ static int bsc_probe(struct platform_device *pdev)
 		goto unregister_misc;
 
 	dev_info(&pdev->dev,
-		 "inactive I2C target 0x%02x, IRQ %d, max transfer %u, poll %u ns\n",
-		 bsc->address, bsc->irq, BSC_MAX_TRANSFER, bsc->poll_interval_ns);
+		 "inactive I2C target 0x%02x, IRQ %d, max transfer %u, RX slots %u, poll %u ns\n",
+		 bsc->address, bsc->irq, BSC_MAX_TRANSFER, BSC_RX_SLOTS,
+		 bsc->poll_interval_ns);
 	return 0;
 
 unregister_misc:
