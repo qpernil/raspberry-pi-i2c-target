@@ -193,10 +193,16 @@ running transaction/byte total instead of dumping binary payloads.
 The virtual display is a separate, self-contained executable. It loads the
 kernel target itself, opens `/dev/bsc-target0` directly, reconstructs the
 framebuffer, and owns the SDL window. It neither launches nor communicates with
-the echo program. Select the emulated controller explicitly:
+the echo program. SH1106 and open-drain button outputs on GPIO5/GPIO26 are the
+defaults for the validated Virtual Trezor setup:
 
 ```sh
-sudo -E ./target/release/virtual-display --display=sh1106 0x3c ./kernel
+sudo -E ./target/release/virtual-display 0x3c ./kernel
+```
+
+Select SSD1306 explicitly when needed:
+
+```sh
 sudo -E ./target/release/virtual-display --display=ssd1306 0x3c ./kernel
 ```
 
@@ -229,13 +235,15 @@ source cannot have perfectly even cadence on a fixed 60 Hz display. If SDL falls
 behind, raw records accumulate in the kernel ring; the driver evicts the oldest
 record only when all 1,024 slots are occupied.
 
-`--button-outputs=LEFT,RIGHT` requests any two GPIOs as active-low open-drain
+By default the viewer requests GPIO5/GPIO26 as active-low open-drain button
 outputs. Holding the left, middle, or right third of the SDL window drives the
-left, both, or right output respectively. For example:
+left, both, or right output respectively. Override them with
+`--button-outputs=LEFT,RIGHT`, or release all button GPIOs with
+`--no-button-outputs`:
 
 ```sh
-sudo -E ./target/release/virtual-display --display=sh1106 \
-  --button-outputs=5,26 0x3c ./kernel
+sudo -E ./target/release/virtual-display --button-outputs=6,27 0x3c ./kernel
+sudo -E ./target/release/virtual-display --no-button-outputs 0x3c ./kernel
 ```
 
 Set an application-specific window title with `--title TEXT`; otherwise the

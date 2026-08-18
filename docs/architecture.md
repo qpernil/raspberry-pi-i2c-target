@@ -52,9 +52,10 @@ responses. The kernel peripheral ACKs controller writes while the application
 drains complete transactions promptly and reports compact totals. This is the
 appropriate mode for write-only protocols such as an SSD1306 display stream.
 
-`virtual-display --display=ssd1306|sh1106` independently loads the target driver,
-opens the character device read-only, and interprets the byte stream in
-userspace. It has no runtime dependency on `target-driver`. The parser recognizes
+`virtual-display` independently loads the target driver, opens the character
+device read-only, and interprets the byte stream in userspace. It defaults to
+SH1106; `--display=ssd1306` selects the other supported controller. It has no
+runtime dependency on `target-driver`. The parser recognizes
 controller initialization, address/page commands, and fixed-size data payloads
 across arbitrary `read()` boundaries and owns the sole 1,024-byte display RAM. SDL
 expands that RAM into a streaming ARGB texture. SH1106 presentation occurs on
@@ -64,9 +65,11 @@ the drain loop. Optional `--vsync` may therefore create receive-queue pressure;
 the 1,024-record kernel ring absorbs finite lag and its documented newest-wins
 overflow policy handles longer delays.
 
-With `--button-outputs=LEFT,RIGHT`, `virtual-display` requests the selected GPIOs
-as active-low open-drain outputs. SDL's left, middle, and right thirds drive
-left, both, and right states. `--title TEXT` overrides the generic window title.
+`virtual-display` defaults to GPIO5/GPIO26 as active-low open-drain outputs.
+SDL's left, middle, and right thirds drive left, both, and right states.
+`--button-outputs=LEFT,RIGHT` overrides those lines;
+`--no-button-outputs` disables them. `--title TEXT` overrides the generic
+window title.
 
 ## Lifecycle state machine
 

@@ -24,8 +24,9 @@ const O_NONBLOCK: c_int = 0x800;
 const SIGINT: c_int = 2;
 const SIGTERM: c_int = 15;
 const DEFAULT_ADDRESS: u16 = 0x3c;
+const DEFAULT_BUTTON_OUTPUTS: (u32, u32) = (5, 26);
 const PARTIAL_FRAME_TIMEOUT: Duration = Duration::from_millis(75);
-const USAGE: &str = "usage: virtual-display --display ssd1306|sh1106 [--title TEXT] [--button-outputs LEFT,RIGHT] [--vsync] [--idle-pull none|down|up] [address] [kernel-directory]\n       virtual-display --unload";
+const USAGE: &str = "usage: virtual-display [--display ssd1306|sh1106] [--title TEXT] [--button-outputs LEFT,RIGHT|--no-button-outputs] [--vsync] [--idle-pull none|down|up] [address] [kernel-directory]\n       virtual-display --unload";
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
@@ -54,6 +55,7 @@ impl Options {
         let mut display = None;
         let mut title = None;
         let mut button_outputs = None;
+        let mut button_outputs_seen = false;
         let mut vsync = false;
         let mut idle_pull = IdlePull::None;
         let mut positionals = Vec::new();
@@ -84,12 +86,13 @@ impl Options {
                 }
                 title = Some(value.to_owned());
             } else if argument == "--button-outputs" {
-                if button_outputs.is_some() {
+                if button_outputs_seen {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
-                        "--button-outputs may be specified only once",
+                        "button-output selection may be specified only once",
                     ));
                 }
+                button_outputs_seen = true;
                 index += 1;
                 let value = arguments.get(index).ok_or_else(|| {
                     io::Error::new(
@@ -99,13 +102,22 @@ impl Options {
                 })?;
                 button_outputs = Some(parse_button_outputs(value)?);
             } else if let Some(value) = argument.strip_prefix("--button-outputs=") {
-                if button_outputs.is_some() {
+                if button_outputs_seen {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
-                        "--button-outputs may be specified only once",
+                        "button-output selection may be specified only once",
                     ));
                 }
+                button_outputs_seen = true;
                 button_outputs = Some(parse_button_outputs(value)?);
+            } else if argument == "--no-button-outputs" {
+                if button_outputs_seen {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "button-output selection may be specified only once",
+                    ));
+                }
+                button_outputs_seen = true;
             } else if argument == "--vsync" {
                 vsync = true;
             } else if argument == "--display" {
@@ -166,14 +178,20 @@ impl Options {
         if (unload
             && (display.is_some()
                 || title.is_some()
-                || button_outputs.is_some()
+                || button_outputs_seen
                 || vsync
                 || !positionals.is_empty()
                 || !matches!(idle_pull, IdlePull::None)))
-            || (!unload && display.is_none())
             || positionals.len() > 2
         {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, USAGE));
+        }
+
+        if !unload {
+            display.get_or_insert(DisplayController::Sh1106);
+            if !button_outputs_seen {
+                button_outputs = Some(DEFAULT_BUTTON_OUTPUTS);
+            }
         }
 
         Ok(Self {
@@ -481,14 +499,31 @@ mod tests {
         let options =
             Options::parse(&arguments(&["virtual-display", "--display", "ssd1306"])).unwrap();
         assert_eq!(options.display, Some(DisplayController::Ssd1306));
+        assert_eq!(options.button_outputs, Some(DEFAULT_BUTTON_OUTPUTS));
     }
 
     #[test]
-    fn requires_display_controller() {
-        let error = Options::parse(&arguments(&["virtual-display"]))
-            .err()
-            .unwrap();
-        assert!(error.to_string().contains("usage: virtual-display"));
+    fn defaults_to_sh1106_and_standard_button_outputs() {
+        let options = Options::parse(&arguments(&["virtual-display"])).unwrap();
+        assert_eq!(options.display, Some(DisplayController::Sh1106));
+        assert_eq!(options.button_outputs, Some((5, 26)));
+    }
+
+    #[test]
+    fn can_disable_default_button_outputs() {
+        let options =
+            Options::parse(&arguments(&["virtual-display", "--no-button-outputs"])).unwrap();
+        assert_eq!(options.display, Some(DisplayController::Sh1106));
+        assert_eq!(options.button_outputs, None);
+
+        let duplicate = Options::parse(&arguments(&[
+            "virtual-display",
+            "--no-button-outputs",
+            "--button-outputs=6,27",
+        ]))
+        .err()
+        .unwrap();
+        assert!(duplicate.to_string().contains("only once"));
     }
 
     #[test]
