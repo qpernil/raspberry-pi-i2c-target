@@ -1,4 +1,4 @@
-//! Self-contained userspace responder for the BSC target kernel driver.
+//! Self-contained userspace responder/receiver for the BSC target kernel driver.
 //!
 //! Run this binary as root. It applies the model-specific device-tree overlay,
 //! loads the out-of-tree module, serves requests, and removes both on exit.
@@ -25,6 +25,8 @@ const PREFIX: &[u8] = b"ACK: ";
 const O_NONBLOCK: c_int = 0x800;
 const SIGINT: c_int = 2;
 const SIGTERM: c_int = 15;
+
+const USAGE: &str = "usage: target-driver [--receive-only] [--idle-pull none|down|up] [address] [kernel-directory]\n       target-driver --unload";
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
@@ -108,6 +110,7 @@ impl IdlePull {
 
 struct Options {
     unload: bool,
+    receive_only: bool,
     address: Option<String>,
     kernel_directory: Option<String>,
     idle_pull: IdlePull,
@@ -116,6 +119,7 @@ struct Options {
 impl Options {
     fn parse(arguments: &[String]) -> io::Result<Self> {
         let mut unload = false;
+        let mut receive_only = false;
         let mut idle_pull = IdlePull::None;
         let mut positionals = Vec::new();
         let mut index = 1;
@@ -124,6 +128,8 @@ impl Options {
             let argument = &arguments[index];
             if argument == "--unload" {
                 unload = true;
+            } else if argument == "--receive-only" || argument == "--no-answer" {
+                receive_only = true;
             } else if argument == "--idle-pull" {
                 index += 1;
                 let value = arguments.get(index).ok_or_else(|| {
@@ -146,17 +152,16 @@ impl Options {
             index += 1;
         }
 
-        if (unload && (!positionals.is_empty() || !matches!(idle_pull, IdlePull::None)))
+        if (unload
+            && (receive_only || !positionals.is_empty() || !matches!(idle_pull, IdlePull::None)))
             || positionals.len() > 2
         {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "usage: target-driver [--idle-pull none|down|up] [address] [kernel-directory]\n       target-driver --unload",
-            ));
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, USAGE));
         }
 
         Ok(Self {
             unload,
+            receive_only,
             address: positionals.first().cloned(),
             kernel_directory: positionals.get(1).cloned(),
             idle_pull,
@@ -431,15 +436,23 @@ fn queue_response(target: &mut File, response: &[u8]) -> io::Result<()> {
     }
 }
 
-fn serve() -> io::Result<()> {
-    let mut target = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .custom_flags(O_NONBLOCK)
-        .open(DEVICE)?;
+fn serve(receive_only: bool) -> io::Result<()> {
+    let mut options = OpenOptions::new();
+    options.read(true).custom_flags(O_NONBLOCK);
+    if !receive_only {
+        options.write(true);
+    }
+    let mut target = options.open(DEVICE)?;
     let mut request = vec![0_u8; MAX_TRANSFER];
+    let mut received_transactions = 0_u64;
+    let mut received_bytes = 0_u64;
+    let mut next_report = Instant::now() + Duration::from_secs(1);
 
-    println!("waiting for I2C requests on {DEVICE}; press Ctrl+C to stop");
+    if receive_only {
+        println!("waiting for I2C writes on {DEVICE}; receive-only mode will not queue responses");
+    } else {
+        println!("waiting for I2C requests on {DEVICE}; press Ctrl+C to stop");
+    }
     while RUNNING.load(Ordering::Relaxed) {
         let length = match target.read(&mut request) {
             Ok(length) => length,
@@ -450,17 +463,36 @@ fn serve() -> io::Result<()> {
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             Err(error) => return Err(error),
         };
-        println!(
-            "received {length} bytes: {:?}",
-            String::from_utf8_lossy(&request[..length])
-        );
+        if receive_only {
+            received_transactions += 1;
+            received_bytes += length as u64;
+            let now = Instant::now();
+            if received_transactions == 1 {
+                println!("received first transaction: {length} bytes");
+            } else if now >= next_report {
+                println!(
+                    "receive-only totals: {received_transactions} transactions, {received_bytes} bytes"
+                );
+                next_report = now + Duration::from_secs(1);
+            }
+        } else {
+            println!(
+                "received {length} bytes: {:?}",
+                String::from_utf8_lossy(&request[..length])
+            );
 
-        let echoed = length.min(MAX_TRANSFER - PREFIX.len());
-        let mut response = Vec::with_capacity(PREFIX.len() + echoed);
-        response.extend_from_slice(PREFIX);
-        response.extend_from_slice(&request[..echoed]);
-        queue_response(&mut target, &response)?;
-        println!("queued {} response bytes", response.len());
+            let echoed = length.min(MAX_TRANSFER - PREFIX.len());
+            let mut response = Vec::with_capacity(PREFIX.len() + echoed);
+            response.extend_from_slice(PREFIX);
+            response.extend_from_slice(&request[..echoed]);
+            queue_response(&mut target, &response)?;
+            println!("queued {} response bytes", response.len());
+        }
+    }
+    if receive_only {
+        println!(
+            "receive-only final totals: {received_transactions} transactions, {received_bytes} bytes"
+        );
     }
     Ok(())
 }
@@ -499,7 +531,7 @@ fn main() -> io::Result<()> {
     );
     println!("using driver artifacts from {}", kernel_directory.display());
     let mut guard = DriverGuard::load(hardware, &kernel_directory, address, options.idle_pull)?;
-    let serve_result = serve();
+    let serve_result = serve(options.receive_only);
     let unload_result = guard.unload();
     match (serve_result, unload_result) {
         (Ok(()), Ok(())) => {
@@ -511,6 +543,47 @@ fn main() -> io::Result<()> {
         (Err(serve_error), Err(unload_error)) => Err(io::Error::other(format!(
             "target failed: {serve_error}; cleanup also failed: {unload_error}"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn arguments(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_owned()).collect()
+    }
+
+    #[test]
+    fn parses_receive_only_mode() {
+        let options = Options::parse(&arguments(&[
+            "target-driver",
+            "--receive-only",
+            "--idle-pull=up",
+            "0x3c",
+            "kernel",
+        ]))
+        .unwrap();
+        assert!(options.receive_only);
+        assert_eq!(options.address.as_deref(), Some("0x3c"));
+        assert_eq!(options.kernel_directory.as_deref(), Some("kernel"));
+        assert!(matches!(options.idle_pull, IdlePull::Up));
+    }
+
+    #[test]
+    fn accepts_no_answer_alias() {
+        let options = Options::parse(&arguments(&["target-driver", "--no-answer", "60"])).unwrap();
+        assert!(options.receive_only);
+        assert_eq!(options.address.as_deref(), Some("60"));
+    }
+
+    #[test]
+    fn rejects_receive_only_with_unload() {
+        let error = Options::parse(&arguments(&["target-driver", "--unload", "--receive-only"]))
+            .err()
+            .unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(error.to_string().contains("usage: target-driver"));
     }
 }
 // SPDX-License-Identifier: MIT OR Apache-2.0

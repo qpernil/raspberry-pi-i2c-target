@@ -172,6 +172,19 @@ overlay, loads the module, opens `/dev/bsc-target0`, and removes the module and
 overlay on ordinary exit. Commands below use `./target/release/target-driver`;
 Raspberry Pi OS users may substitute `./prebuilt/aarch64/target-driver`.
 
+For write-only peripherals such as displays, use receive-only mode. The target
+ACKs controller writes and drains complete transactions without queueing reply
+data:
+
+```sh
+sudo ./target/release/target-driver --receive-only 0x3c ./kernel
+```
+
+`--no-answer` is accepted as an alias. Receive-only mode prints a compact
+running transaction/byte total instead of dumping binary payloads. It is a
+transport test and input for a later protocol-specific consumer; it does not
+interpret SSD1306 commands or render a display.
+
 ### Idle pin policy
 
 Loading but not opening the device leaves the existing GPIO configuration

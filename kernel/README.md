@@ -65,6 +65,16 @@ directory can be supplied explicitly:
 sudo ./target/release/target-driver 0x24 ./kernel
 ```
 
+Use receive-only mode for controllers that only write, such as an OLED display
+driver. The BSC target ACKs and the application drains each transaction without
+queueing an unused response:
+
+```sh
+sudo ./target/release/target-driver --receive-only 0x3c ./kernel
+```
+
+`--no-answer` is an equivalent alias.
+
 Idle pull policy belongs to the overlay rather than the C driver. It defaults
 to no pull and can be selected by the loading application:
 

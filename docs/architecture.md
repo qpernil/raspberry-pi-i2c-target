@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `bcm27xx_bsc_target.ko` | C | MMIO, IRQ/FIFO service, timer, transaction queues, character device |
 | Pi 3/Pi 4 overlays | Device Tree | MMIO/IRQ description, model-specific pins, active and idle pinctrl policy |
-| `target-driver` | Rust | Temporary overlay/module lifecycle and example request responder |
+| `target-driver` | Rust | Temporary overlay/module lifecycle, echo responder, and receive-only transaction drain |
 | `controller-long` | Rust | Long-message controller through Linux `i2c-dev` |
 | `target` / `controller` | Rust | FIFO-bounded direct-MMIO demonstration protocol |
 
@@ -38,6 +38,11 @@ The receive side holds four completed transactions. Additional completed writes
 are drained and counted as dropped. A controller read with no queued response
 cannot wait because the peripheral has no clock stretching; it underruns and is
 counted.
+
+`target-driver --receive-only` opens the character device without writing
+responses. The kernel peripheral ACKs controller writes while the application
+drains complete transactions promptly and reports compact totals. This is the
+appropriate mode for write-only protocols such as an SSD1306 display stream.
 
 ## Lifecycle state machine
 
