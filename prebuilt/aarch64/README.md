@@ -3,18 +3,17 @@
 These are convenience builds of the four dependency-free Rust programs. They
 contain no kernel module or Device Tree overlay.
 
-They were built from clean Git commit
-`caaf31524ccbf6c8cf9ec0151c61a6eccce822d2` on a Raspberry Pi 4 running
-Raspberry Pi OS (Debian 13, ARM64), using Rust/Cargo 1.97.1 and glibc 2.41.
-Building on Raspberry Pi OS provides a more conservative glibc baseline than
-the Ubuntu development machines.
+They were built from clean Git commits on a Raspberry Pi 4 running Raspberry
+Pi OS (Debian 13, ARM64), using Rust/Cargo 1.97.1 and glibc 2.41. Building on
+Raspberry Pi OS provides a more conservative glibc baseline than the Ubuntu
+development machines.
 
-| File | Purpose |
-| --- | --- |
-| `controller` | FIFO-sized controller for the direct userspace demonstration |
-| `controller-long` | Long-message controller for the kernel target driver |
-| `target` | Direct `/dev/mem` FIFO-sized target demonstration |
-| `target-driver` | Kernel module/overlay lifecycle and example responder |
+| File | Purpose | Source commit |
+| --- | --- | --- |
+| `controller` | FIFO-sized controller for the direct userspace demonstration | `caaf31524ccbf6c8cf9ec0151c61a6eccce822d2` |
+| `controller-long` | Long-message controller for the kernel target driver | `caaf31524ccbf6c8cf9ec0151c61a6eccce822d2` |
+| `target` | Direct `/dev/mem` FIFO-sized target demonstration | `caaf31524ccbf6c8cf9ec0151c61a6eccce822d2` |
+| `target-driver` | Kernel module/overlay lifecycle, echo, and receive-only modes | `b45a3b5a194f1c4e72d4be3e49741c8ab1f44171` |
 
 Verify the files before use:
 
