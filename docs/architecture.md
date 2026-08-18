@@ -6,12 +6,14 @@
 | --- | --- | --- |
 | `bcm27xx_bsc_target.ko` | C | MMIO, IRQ/FIFO service, timer, transaction queues, character device |
 | Pi 3/Pi 4 overlays | Device Tree | MMIO/IRQ description, model-specific pins, active and idle pinctrl policy |
-| `target-driver` | Rust | Temporary overlay/module lifecycle, echo responder, and receive-only transaction drain |
+| `target-driver` | Rust | Self-contained temporary overlay/module lifecycle and echo/receive test modes |
+| `virtual-display` | Rust | Self-contained target lifecycle, SSD1306/SH1106 parser, SDL viewer, and optional button GPIOs |
 | `controller-long` | Rust | Long-message controller through Linux `i2c-dev` |
 | `target` / `controller` | Rust | FIFO-bounded direct-MMIO demonstration protocol |
 
 The kernel module is deliberately small. Protocol interpretation remains in
-userspace; the driver transports complete I²C transactions.
+userspace; the driver transports observed receive bursts without assigning
+protocol meaning to character-device record boundaries.
 
 ## Hardware mapping
 
@@ -27,22 +29,44 @@ translation produces the model-specific CPU physical address.
 
 `/dev/bsc-target0` permits one independent open file at a time.
 
-- `read()` returns one complete controller-to-target write transaction.
+- `read()` returns one queued receive record. A record normally corresponds to
+  one controller write, but adjacent writes can be aggregated when their
+  STOP-to-START gap is shorter than the driver's observation interval.
 - `write()` queues one complete response for a later controller read.
 - `poll()` reports queued requests and response-slot availability.
 - `BSC_TARGET_IOC_GET_INFO` reports ABI/configuration information.
 - `BSC_TARGET_IOC_GET_STATS` and the sysfs `stats` attribute report counters.
 - Transactions are limited to 8192 bytes.
 
-The receive side holds four completed transactions. Additional completed writes
-are drained and counted as dropped. A controller read with no queued response
-cannot wait because the peripheral has no clock stretching; it underruns and is
-counted.
+The receive side holds 1,024 fixed-size records. Each slot contains a 32-bit
+length and up to 8,192 bytes, so the dynamically allocated ring occupies about
+8 MiB. When the ring is full, the oldest record is evicted and `rx_dropped` is
+incremented so the newest device state remains available. `read()` copies and
+dequeues one slot under the driver lock before copying it to userspace, preventing
+a producer from overwriting a record being read. A controller read with no queued
+response cannot wait because the peripheral has no clock stretching; it
+underruns and is counted.
 
 `target-driver --receive-only` opens the character device without writing
 responses. The kernel peripheral ACKs controller writes while the application
 drains complete transactions promptly and reports compact totals. This is the
 appropriate mode for write-only protocols such as an SSD1306 display stream.
+
+`virtual-display --display=ssd1306|sh1106` independently loads the target driver,
+opens the character device read-only, and interprets the byte stream in
+userspace. It has no runtime dependency on `target-driver`. The parser recognizes
+controller initialization, address/page commands, and fixed-size data payloads
+across arbitrary `read()` boundaries and owns the sole 1,024-byte display RAM. SDL
+expands that RAM into a streaming ARGB texture. SH1106 presentation occurs on
+page 7, a lower-page wrap, or a 75 ms incomplete-frame timeout; SSD1306 presents
+after its complete framebuffer payload. Rendering is lossless and remains in
+the drain loop. Optional `--vsync` may therefore create receive-queue pressure;
+the 1,024-record kernel ring absorbs finite lag and its documented newest-wins
+overflow policy handles longer delays.
+
+With `--button-outputs=LEFT,RIGHT`, `virtual-display` requests the selected GPIOs
+as active-low open-drain outputs. SDL's left, middle, and right thirds drive
+left, both, and right states. `--title TEXT` overrides the generic window title.
 
 ## Lifecycle state machine
 
@@ -75,6 +99,12 @@ The driver uses two mechanisms:
 
 The timer exists only while the device is open. Its Device Tree range is 20–500
 µs through the `poll_ns` overlay parameter.
+
+Interrupt bit 2 is the BSC break condition, not a receive-timeout interrupt.
+The periodic timer is therefore required even when no FIFO threshold interrupt
+occurs. It observes `RXBUSY` clearing to finish the current receive burst; a
+short idle gap can pass entirely between observations, in which case adjacent
+I²C writes are deliberately retained in one record rather than losing bytes.
 
 The BSC may preload bytes into its transmit serializer, and `TXBUSY` does not
 reliably describe a complete I2C transaction. The driver therefore releases a

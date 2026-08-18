@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/qpernil/raspberry-pi-i2c-target/actions/workflows/ci.yml/badge.svg)](https://github.com/qpernil/raspberry-pi-i2c-target/actions/workflows/ci.yml)
 
-An interrupt-driven Linux I²C target driver and dependency-free Rust tools for
+An interrupt-driven Linux I²C target driver and crate-dependency-free Rust tools for
 Raspberry Pi. A Pi 3B/3B+ or Pi 4B acts as the target; a Pi 4 or Pi 5 running
 Linux can act as the controller through the standard `/dev/i2c-1` interface.
 
@@ -15,15 +15,19 @@ The project contains two target implementations:
 
 The kernel driver is the recommended path for long messages. It exposes
 `/dev/bsc-target0`; the Rust responder owns its temporary overlay/module
-lifecycle and never changes the boot configuration.
+lifecycle and never changes the boot configuration. Its 1,024-record receive
+ring occupies about 8 MiB, keeps the newest traffic when full, and gives slow
+userspace consumers substantial time to catch up.
 
 > **Hardware status:** module compilation, MMIO/IRQ discovery, pin multiplexing,
 > character-device lifecycle, FIFO queuing, exclusive-open behavior, configurable
 > idle pulls, cleanup, and `SIGKILL` final-close handling have been exercised on
 > Pi 3 and Pi 4 hardware. Initial Pi 5-controller to Pi 3B+-target wired tests at
 > the configured 400 kHz rate passed response sizes from 6 through 1029 bytes
-> with no drops, overruns, underruns, or short reads. Sustained-load and complete
-> signal-integrity qualification remain pending.
+> with no drops, overruns, underruns, or short reads. SSD1306 and SH1106 display
+> streams, receive-ring overflow/recovery, SDL rendering, and remote GPIO button
+> input have also been exercised end to end. Complete signal-integrity
+> qualification remains pending.
 
 ## Supported hardware
 
@@ -61,21 +65,24 @@ Target-pin conflicts:
 ## Architecture
 
 ```text
-controller-long (Rust)                     target-driver (Rust)
-          │                                          │
-          ▼                                          ▼
-    /dev/i2c-1                                /dev/bsc-target0
-          │                                          │
- Linux controller driver                 bcm27xx_bsc_target.ko
-          │                                          │
-          └──────── SDA / SCL / GND ─────────────────┘
+controller-long (Rust)          target-driver or virtual-display (Rust)
+          │                                      │
+          ▼                                      ▼
+    /dev/i2c-1                            /dev/bsc-target0
+          │                                      │
+ Linux controller driver             bcm27xx_bsc_target.ko
+          │                                      │
+          └──────── SDA / SCL / GND ─────────────┘
 ```
 
 The controller uses the normal in-kernel Raspberry Pi I²C controller driver.
 The target uses the separate BCM SPI/BSC target peripheral. The target driver
 services FIFO thresholds in hard-IRQ context; a 100 µs high-resolution timer,
 active only while the character device is open, catches short tails and STOP
-completion.
+completion. Because the BSC peripheral does not expose a reliable software STOP
+event, very short STOP-to-START gaps can be missed and adjacent controller writes
+can appear in one character-device record. Protocol consumers must parse a byte
+stream rather than equating `read()` calls with electrical I²C transactions.
 
 See [Architecture and lifecycle](docs/architecture.md) for the driver boundary,
 pin states, transactions, and limitations.
@@ -181,9 +188,61 @@ sudo ./target/release/target-driver --receive-only 0x3c ./kernel
 ```
 
 `--no-answer` is accepted as an alias. Receive-only mode prints a compact
-running transaction/byte total instead of dumping binary payloads. It is a
-transport test and input for a later protocol-specific consumer; it does not
-interpret SSD1306 commands or render a display.
+running transaction/byte total instead of dumping binary payloads.
+
+The virtual display is a separate, self-contained executable. It loads the
+kernel target itself, opens `/dev/bsc-target0` directly, reconstructs the
+framebuffer, and owns the SDL window. It neither launches nor communicates with
+the echo program. Select the emulated controller explicitly:
+
+```sh
+sudo -E ./target/release/virtual-display --display=sh1106 0x3c ./kernel
+sudo -E ./target/release/virtual-display --display=ssd1306 0x3c ./kernel
+```
+
+Raspberry Pi OS ARM64 users may substitute
+`./prebuilt/aarch64/virtual-display` for the locally built executable.
+
+The display mode defaults to address `0x3c`, so the explicit address can be
+omitted. It requires the SDL2 runtime; building it requires `libsdl2-dev`.
+Run it from a terminal inside the target Pi's graphical login so `sudo -E`
+preserves the Wayland/X11 session variables.
+
+The parser consumes bytes incrementally and does not assume one character
+device read per controller write. It handles merged or fragmented command/data
+messages and writes directly into one canonical 1,024-byte framebuffer. SSD1306
+is presented after its 1,024-byte payload. SH1106 is presented after page 7, at
+a wrap to a lower-numbered page when page 7 was missing, or after a 75 ms idle
+timeout for a final incomplete frame. Missing pixels retain their previous
+contents.
+
+SDL expands that monochrome display RAM directly into a streaming ARGB texture.
+Rendering is lossless: it does not intentionally skip controller frames. Vsync
+is off by default. Enable it experimentally with `--vsync`:
+
+```sh
+sudo -E ./target/release/virtual-display --display=sh1106 --vsync 0x3c ./kernel
+```
+
+Vsync can make motion smoother when the monitor refresh is suitable, but a 40 Hz
+source cannot have perfectly even cadence on a fixed 60 Hz display. If SDL falls
+behind, raw records accumulate in the kernel ring; the driver evicts the oldest
+record only when all 1,024 slots are occupied.
+
+`--button-outputs=LEFT,RIGHT` requests any two GPIOs as active-low open-drain
+outputs. Holding the left, middle, or right third of the SDL window drives the
+left, both, or right output respectively. For example:
+
+```sh
+sudo -E ./target/release/virtual-display --display=sh1106 \
+  --button-outputs=5,26 0x3c ./kernel
+```
+
+Set an application-specific window title with `--title TEXT`; otherwise the
+title defaults to `Virtual I2C display - <controller>`.
+
+The SDL view applies the segment/COM orientation used by the physical display
+while leaving received framebuffer bytes unchanged.
 
 ### Idle pin policy
 

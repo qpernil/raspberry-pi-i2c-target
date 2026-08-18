@@ -16,11 +16,16 @@ default. They leave the BSC peripheral disabled and its timer stopped, and do
 not alter the existing GPIO configuration until an application opens the
 character device.
 
-- Each `read()` returns one complete controller-to-target I2C transaction.
+- Each `read()` returns one queued receive record. A record normally contains
+  one controller write, but very short STOP-to-START gaps can cause adjacent
+  writes to be aggregated.
 - Each `write()` queues one complete response for the next controller read.
 - A response must be queued before the controller starts reading because the
   peripheral cannot stretch SCL.
 - The maximum transaction is 8192 bytes.
+- The receive ring contains 1024 fixed 8192-byte slots (about 8 MiB). If full,
+  it evicts the oldest record, retains the newest traffic, and increments
+  `rx_dropped`.
 - `poll()` reports readable requests and an available response slot.
 - The ioctl ABI in `bsc_target_uapi.h` reports configuration and statistics.
 - A text statistics snapshot is exposed as the platform device's `stats`
@@ -66,7 +71,7 @@ sudo ./target/release/target-driver 0x24 ./kernel
 ```
 
 Use receive-only mode for controllers that only write, such as an OLED display
-driver. The BSC target ACKs and the application drains each transaction without
+driver. The BSC target ACKs and the application drains each record without
 queueing an unused response:
 
 ```sh
@@ -74,6 +79,21 @@ sudo ./target/release/target-driver --receive-only 0x3c ./kernel
 ```
 
 `--no-answer` is an equivalent alias.
+
+The independent `virtual-display` application loads the same kernel target
+itself, decodes SSD1306 or SH1106 streams into one canonical 128x64 monochrome
+framebuffer, and renders it through SDL2. It does not invoke `target-driver`:
+
+```sh
+sudo -E ./target/release/virtual-display --display=ssd1306 0x3c ./kernel
+sudo -E ./target/release/virtual-display --display=sh1106 \
+  --button-outputs=5,26 0x3c ./kernel
+```
+
+Display mode defaults to address `0x3c`. Add `--vsync` to request synchronized
+SDL presentation; it remains off by default and never enables intentional frame
+skipping. A slow synchronized renderer instead uses the kernel receive ring as
+its finite backlog.
 
 Idle pull policy belongs to the overlay rather than the C driver. It defaults
 to no pull and can be selected by the loading application:

@@ -10,7 +10,8 @@ keywords = ["raspberry-pi", "i2c", "embedded-linux"]
 categories = ["embedded", "hardware-support"]
 publish = false
 
-# Deliberately dependency-free. All binaries call Linux interfaces directly.
+# Deliberately crate-dependency-free. Linux interfaces and system SDL2 are
+# called directly; only virtual-display needs SDL2 at link/runtime.
 
 [[bin]]
 name = "controller"
@@ -23,6 +24,10 @@ path = "src/bin/target.rs"
 [[bin]]
 name = "target-driver"
 path = "src/bin/target-driver.rs"
+
+[[bin]]
+name = "virtual-display"
+path = "src/bin/virtual-display.rs"
 
 [[bin]]
 name = "controller-long"

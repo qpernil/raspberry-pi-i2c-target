@@ -490,9 +490,7 @@ fn serve(receive_only: bool) -> io::Result<()> {
         }
     }
     if receive_only {
-        println!(
-            "receive-only final totals: {received_transactions} transactions, {received_bytes} bytes"
-        );
+        println!("receive-only final totals: {received_transactions} transactions, {received_bytes} bytes");
     }
     Ok(())
 }
