@@ -103,6 +103,16 @@ The driver uses two mechanisms:
 The timer exists only while the device is open. Its Device Tree range is 20–500
 µs through the `poll_ns` overlay parameter.
 
+FIFO safety comes from the receive threshold interrupt, not from the timer. At
+the half-full threshold, the hard-IRQ handler is notified with eight of the
+16 FIFO slots still available. If the timer happens to drain fewer than eight
+bytes first, a continuing transfer simply reaches the threshold again after
+the next eight bytes. The timer interval therefore trades receive-tail latency
+against callback overhead; its phase relative to a transfer is not a FIFO
+safety deadline. An interrupt handler delayed long enough for the remaining
+FIFO capacity to fill can still overrun because this peripheral cannot stretch
+the controller's clock.
+
 Interrupt bit 2 is the BSC break condition, not a receive-timeout interrupt.
 The periodic timer is therefore required even when no FIFO threshold interrupt
 occurs. It observes `RXBUSY` clearing to finish the current receive burst; a

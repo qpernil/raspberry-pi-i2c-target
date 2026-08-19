@@ -36,6 +36,29 @@ This is an initial functional result, not completion of the qualification plan
 below. The 100 kHz matrix, electrical measurements, randomized sustained load,
 and deliberate CPU/storage/network pressure remain to be run.
 
+## Half-full IRQ with 250 µs tail timer — 2026-08-19
+
+The default timer was increased from 100 to 250 µs while retaining the
+half-full receive threshold. A Pi 4 Virtual Trezor controller then sent repeated
+400 kHz boot-display traffic to a Pi 3B+ target running kernel
+`6.18.39+rpt-rpi-v8`. Ten controller restarts varied the free-running timer's
+phase across thousands of writes.
+
+Final driver counters were:
+
+```text
+rx_transactions=3392 rx_bytes=908432 rx_overruns=0 rx_dropped=0
+tx_transactions=0 tx_bytes=0 tx_underruns=0 tx_short_reads=0
+interrupts=82185 timer_runs=292040
+```
+
+With the previous 100 µs interval, an earlier display run had recorded zero
+hardware interrupts because the timer repeatedly drained the FIFO before it
+reached the threshold. The 250 µs result confirms that normal long writes now
+use the hard-IRQ path while the timer remains available for sub-threshold tails
+and completion detection. Randomized load and deliberate scheduling pressure
+are still required for full qualification.
+
 ## Equipment
 
 - One Raspberry Pi controller with `/dev/i2c-1` enabled
