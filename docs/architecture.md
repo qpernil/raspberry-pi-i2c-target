@@ -96,7 +96,7 @@ The driver uses two mechanisms:
 
 1. Receive/transmit FIFO thresholds invoke a hard IRQ handler, which drains or
    refills the FIFO without waiting for userspace scheduling.
-2. A configurable high-resolution timer (250 µs by default) catches receive
+2. A configurable high-resolution timer (300 µs by default) catches receive
    tails below the interrupt threshold, detects receive completion, and releases
    fully loaded responses when the transmit FIFO becomes empty.
 
@@ -104,10 +104,10 @@ The timer exists only while the device is open. Its Device Tree range is 20–50
 µs through the `poll_ns` overlay parameter.
 
 FIFO safety comes from the receive threshold interrupt, not from the timer. At
-the half-full threshold, the hard-IRQ handler is notified with eight of the
-16 FIFO slots still available. If the timer happens to drain fewer than eight
+the three-quarter-full threshold, the hard-IRQ handler is notified with four of
+the 16 FIFO slots still available. If the timer happens to drain fewer than 12
 bytes first, a continuing transfer simply reaches the threshold again after
-the next eight bytes. The timer interval therefore trades receive-tail latency
+the next 12 bytes. The timer interval therefore trades receive-tail latency
 against callback overhead; its phase relative to a transfer is not a FIFO
 safety deadline. An interrupt handler delayed long enough for the remaining
 FIFO capacity to fill can still overrun because this peripheral cannot stretch

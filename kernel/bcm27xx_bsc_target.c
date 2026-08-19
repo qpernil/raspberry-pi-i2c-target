@@ -62,13 +62,13 @@
 #define IRQ_ALL (IRQ_BASE | IRQ_TX)
 
 #define IFLS_TX_HALF 2
-#define IFLS_RX_HALF (2 << 3)
-#define IFLS_HALF (IFLS_TX_HALF | IFLS_RX_HALF)
+#define IFLS_RX_THREE_QUARTERS (3 << 3)
+#define IFLS_DEFAULT (IFLS_TX_HALF | IFLS_RX_THREE_QUARTERS)
 
 #define BSC_FIFO_SIZE 16
 #define BSC_MAX_TRANSFER 8192
 #define BSC_RX_SLOTS 1024
-#define BSC_DEFAULT_POLL_NS 250000
+#define BSC_DEFAULT_POLL_NS 300000
 #define BSC_MIN_POLL_NS 20000
 #define BSC_MAX_POLL_NS 500000
 
@@ -141,7 +141,7 @@ static void bsc_configure_locked(struct bsc_target *bsc)
 	bsc_write(bsc, CR, 0);
 	bsc_write(bsc, RSR, 0);
 	bsc_write(bsc, SLV, bsc->address);
-	bsc_write(bsc, IFLS, IFLS_HALF);
+	bsc_write(bsc, IFLS, IFLS_DEFAULT);
 	bsc_write(bsc, ICR, IRQ_ALL);
 	bsc_write(bsc, CR, CR_I2C_TARGET);
 	bsc_set_interrupts_locked(bsc);

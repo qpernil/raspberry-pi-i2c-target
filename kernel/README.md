@@ -4,10 +4,11 @@ This experimental out-of-tree driver services the BCM2835-family SPI/BSC I2C
 target FIFO from interrupt context. It supports Raspberry Pi 3B/3B+ and Pi 4B.
 
 The hardware has a 16-byte FIFO, no DMA, no clock stretching, and only 7-bit
-target addresses. The driver combines FIFO threshold interrupts with a 100 us
-high-resolution timer. The timer drains sub-threshold receive tails, detects
-receive completion, and releases fully loaded responses when the transmit FIFO
-becomes empty.
+target addresses. The driver combines a three-quarter-full receive threshold
+interrupt with a configurable high-resolution timer (300 µs by default). The
+timer drains sub-threshold receive tails, detects receive completion, and
+releases fully loaded responses when the transmit FIFO becomes empty. The
+Device Tree `poll_ns` parameter accepts intervals from 20 to 500 µs.
 
 ## Character-device interface
 
