@@ -59,6 +59,27 @@ use the hard-IRQ path while the timer remains available for sub-threshold tails
 and completion detection. Randomized load and deliberate scheduling pressure
 are still required for full qualification.
 
+## Three-quarter-full IRQ with 300 µs tail timer — 2026-08-19
+
+The same ten-restart workload was repeated with the receive threshold at 12 of
+16 FIFO bytes and the tail timer at 300 µs. An unloaded run received 767,690
+bytes using 52,588 hardware interrupts with zero overruns and zero drops. A
+second run saturated all four target CPU cores with parallel SHA-256 work and
+produced this counter delta:
+
+```text
+rx_transactions=2400 rx_bytes=769020 rx_overruns=0 rx_dropped=0
+tx_transactions=0 tx_bytes=0 tx_underruns=0 tx_short_reads=0
+interrupts=52743
+```
+
+The corresponding ten-restart delta at the half-full threshold was 769,020
+bytes and 69,506 interrupts. Raising the threshold therefore reduced the
+interrupt rate by approximately 24%, from one interrupt per 11.1 received
+bytes to one per 14.6 bytes. Full userspace CPU load had no measurable effect
+on that rate and caused no receive errors. This does not replace deliberate
+storage, network, USB-interrupt, or IRQ-off-latency testing.
+
 ## Equipment
 
 - One Raspberry Pi controller with `/dev/i2c-1` enabled
