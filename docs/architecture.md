@@ -96,7 +96,7 @@ The driver uses two mechanisms:
 
 1. Receive/transmit FIFO thresholds invoke a hard IRQ handler, which drains or
    refills the FIFO without waiting for userspace scheduling.
-2. A configurable high-resolution timer (100 µs by default) catches receive
+2. A configurable high-resolution timer (250 µs by default) catches receive
    tails below the interrupt threshold, detects receive completion, and releases
    fully loaded responses when the transmit FIFO becomes empty.
 
