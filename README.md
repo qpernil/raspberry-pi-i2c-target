@@ -77,12 +77,13 @@ controller-long (Rust)          target-driver or virtual-display (Rust)
 
 The controller uses the normal in-kernel Raspberry Pi I²C controller driver.
 The target uses the separate BCM SPI/BSC target peripheral. The target driver
-services FIFO thresholds in hard-IRQ context; a 100 µs high-resolution timer,
-active only while the character device is open, catches short tails and STOP
-completion. Because the BSC peripheral does not expose a reliable software STOP
-event, very short STOP-to-START gaps can be missed and adjacent controller writes
-can appear in one character-device record. Protocol consumers must parse a byte
-stream rather than equating `read()` calls with electrical I²C transactions.
+services its three-quarter-full receive threshold in hard-IRQ context; a 300 µs
+high-resolution timer, active only while the character device is open, catches
+short tails and STOP completion. Because the BSC peripheral does not expose a
+reliable software STOP event, very short STOP-to-START gaps can be missed and
+adjacent controller writes can appear in one character-device record. Protocol
+consumers must parse a byte stream rather than equating `read()` calls with
+electrical I²C transactions.
 
 See [Architecture and lifecycle](docs/architecture.md) for the driver boundary,
 pin states, transactions, and limitations.
@@ -377,6 +378,12 @@ while the character device is closed.
 - [Kernel driver interface and build details](kernel/README.md)
 - [Architecture and lifecycle](docs/architecture.md)
 - [Hardware and oscilloscope validation plan](docs/hardware-test-plan.md)
+
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes. Report
+security-sensitive findings according to [SECURITY.md](SECURITY.md), not in a
+public issue.
 
 ## License
 
