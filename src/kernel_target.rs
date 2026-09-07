@@ -26,6 +26,7 @@ unsafe extern "C" {
 struct Hardware {
     name: &'static str,
     overlay: &'static str,
+    target_pins: [u32; 2],
 }
 
 impl Hardware {
@@ -36,12 +37,14 @@ impl Hardware {
             return Ok(Self {
                 name: "Raspberry Pi 3",
                 overlay: "bsc-target-pi3",
+                target_pins: [18, 19],
             });
         }
         if model.contains("Raspberry Pi 4 Model B") {
             return Ok(Self {
                 name: "Raspberry Pi 4",
                 overlay: "bsc-target-pi4",
+                target_pins: [10, 11],
             });
         }
         Err(io::Error::new(
@@ -122,6 +125,43 @@ pub fn parse_address(value: Option<&String>, default: u16) -> io::Result<u16> {
         ));
     }
     Ok(parsed)
+}
+
+pub fn parse_gpio(value: &str) -> io::Result<u32> {
+    let gpio = value.parse::<u32>().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "GPIO must be a BCM GPIO number in 0..=53",
+        )
+    })?;
+    if gpio > 53 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "GPIO must be a BCM GPIO number in 0..=53",
+        ));
+    }
+    Ok(gpio)
+}
+
+fn validate_ready_gpio(hardware: Hardware, ready_gpio: Option<u32>) -> io::Result<()> {
+    if let Some(gpio) = ready_gpio {
+        if gpio > 53 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "ready GPIO must be a BCM GPIO number in 0..=53",
+            ));
+        }
+        if hardware.target_pins.contains(&gpio) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "GPIO{gpio} is used by the I2C target peripheral on {}",
+                    hardware.name
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn project_root(executable: &Path) -> io::Result<&Path> {
@@ -276,8 +316,14 @@ pub struct DriverGuard {
 }
 
 impl DriverGuard {
-    pub fn load(kernel_directory: &Path, address: u16, idle_pull: IdlePull) -> io::Result<Self> {
+    pub fn load(
+        kernel_directory: &Path,
+        address: u16,
+        idle_pull: IdlePull,
+        ready_gpio: Option<u32>,
+    ) -> io::Result<Self> {
         let hardware = Hardware::detect()?;
+        validate_ready_gpio(hardware, ready_gpio)?;
         ensure_unloaded()?;
         ensure_artifacts_current(kernel_directory, hardware)?;
         let module = kernel_directory.join(MODULE_FILE);
@@ -289,16 +335,18 @@ impl DriverGuard {
         };
         let address_parameter = format!("addr=0x{address:02x}");
         let idle_pull_parameter = idle_pull.overlay_parameter();
-        run_command(
-            "dtoverlay",
-            &[
-                OsStr::new("-d"),
-                kernel_directory.as_os_str(),
-                OsStr::new(hardware.overlay),
-                OsStr::new(&address_parameter),
-                OsStr::new(idle_pull_parameter),
-            ],
-        )?;
+        let ready_gpio_parameter = ready_gpio.map(|gpio| format!("ready_gpio={gpio}"));
+        let mut overlay_arguments = vec![
+            OsStr::new("-d"),
+            kernel_directory.as_os_str(),
+            OsStr::new(hardware.overlay),
+            OsStr::new(&address_parameter),
+            OsStr::new(idle_pull_parameter),
+        ];
+        if let Some(parameter) = ready_gpio_parameter.as_deref() {
+            overlay_arguments.push(OsStr::new(parameter));
+        }
+        run_command("dtoverlay", &overlay_arguments)?;
         guard.overlay_loaded = true;
         run_command("insmod", &[module.as_os_str()])?;
         guard.module_loaded = true;
@@ -356,5 +404,18 @@ mod tests {
     fn validates_idle_pull() {
         assert_eq!(IdlePull::parse("none").unwrap(), IdlePull::None);
         assert!(IdlePull::parse("invalid").is_err());
+    }
+
+    #[test]
+    fn validates_gpio_numbers_and_target_pin_conflicts() {
+        let hardware = Hardware {
+            name: "Raspberry Pi 3",
+            overlay: "bsc-target-pi3",
+            target_pins: [18, 19],
+        };
+        assert_eq!(parse_gpio("17").unwrap(), 17);
+        assert!(parse_gpio("54").is_err());
+        assert!(validate_ready_gpio(hardware, Some(17)).is_ok());
+        assert!(validate_ready_gpio(hardware, Some(18)).is_err());
     }
 }

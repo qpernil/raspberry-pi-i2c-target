@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `bcm27xx_bsc_target.ko` | C | MMIO, IRQ/FIFO service, timer, transaction queues, character device |
 | Pi 3/Pi 4 overlays | Device Tree | MMIO/IRQ description, model-specific pins, active and idle pinctrl policy |
-| `target-driver` | Rust | Self-contained temporary overlay/module lifecycle and echo/receive test modes |
+| `target-driver` | Rust | Temporary overlay/module lifecycle with echo/receive modes or a profile-supervised worker |
 | `virtual-display` | Rust | Self-contained target lifecycle, SSD1306/SH1106 parser, SDL viewer, and optional button GPIOs |
 | `controller-long` | Rust | Long-message controller through Linux `i2c-dev` |
 | `target` / `controller` | Rust | FIFO-bounded direct-MMIO demonstration protocol |
@@ -32,20 +32,53 @@ translation produces the model-specific CPU physical address.
 - `read()` returns one queued receive record. A record normally corresponds to
   one controller write, but adjacent writes can be aggregated when their
   STOP-to-START gap is shorter than the driver's observation interval.
-- `write()` queues one complete response for a later controller read.
-- `poll()` reports queued requests and response-slot availability.
-- `BSC_TARGET_IOC_GET_INFO` reports ABI/configuration information.
-- `BSC_TARGET_IOC_GET_STATS` and the sysfs `stats` attribute report counters.
+- `write()` publishes the response to the last request read by the worker,
+  or discards it if a newer request has arrived.
+- `poll()` reports readable requests and whether a worker has a response due.
+- `BSC_TARGET_IOC_GET_INFO` reports ABI 3; `reserved[0]` is 1 with READY configured.
+- `BSC_TARGET_IOC_GET_STATS` and sysfs `stats` report counters. `tx_transactions`
+  and `tx_bytes` count published responses, not inferred wire consumption;
+  `tx_discarded` counts superseded worker results.
 - Transactions are limited to 8192 bytes.
 
-The receive side holds 1,024 fixed-size records. Each slot contains a 32-bit
-length and up to 8,192 bytes, so the dynamically allocated ring occupies about
-8 MiB. When the ring is full, the oldest record is evicted and `rx_dropped` is
-incremented so the newest device state remains available. `read()` copies and
-dequeues one slot under the driver lock before copying it to userspace, preventing
-a producer from overwriting a record being read. A controller read with no queued
-response cannot wait because the peripheral has no clock stretching; it
-underruns and is counted.
+Response mode requires an active-low, open-drain READY GPIO and driver ABI 3.
+Upgrade the controller, driver and HSM frontend together. Receive-only display
+workloads do not require READY and retain their 1,024-record receive ring.
+
+The controller holds the physical bus lock while writing a complete request.
+The driver invalidates the previous result when new input arrives and clears
+old transmit data after the receive burst ends. It then acknowledges cleanup
+with a deasserting READY edge (physical rising edge). If READY was already
+inactive, a short assertion ensures this edge still exists; the assertion is
+held for 20 µs so the controller GPIO can latch it. During this request phase,
+that pulse is an acknowledgment, not a response. Arm rising-only GPIO detection before writing and discard stale events. After
+acknowledgment, arm falling-only detection and check the current response level.
+A reply arriving before reconfiguration stays asserted; a later reply wakes the
+waiter. Linux both-edge detection may classify an interrupt by sampling the pin
+in its deferred handler, mislabeling a short inactive interval. Single-edge
+selection avoids that ambiguity without extending response timing.
+
+After the acknowledgment the controller releases the bus, waits for the next
+READY assertion, then reacquires the bus to read the exact response length.
+The driver queues only response bytes. READY stays asserted after the read;
+there is no guard byte, fallback marker, drain timeout, or post-read reset.
+The next request clears any leftovers, including abandoned reads. No peripheral
+reset occurs while another target is computing or publishing its response.
+
+One worker executes requests sequentially. With READY, the driver retains only
+one pending request, replacing it when newer input arrives. A worker response
+is published only if it belongs to the latest receive generation; a superseded
+write succeeds but discards its bytes. This cannot undo an executed operation's
+side effects. A controller must not automatically replay uncertain commands.
+A read and its corresponding write belong to one worker; concurrent worker
+reads are not supported. Requests must have a STOP and wait for acknowledgment
+before another request; arbitrary adjacent writes can merge into one record.
+
+The bus lock also covers the entire header/body read. It does not cover HSM
+computation, so targets with separate READY lines can progress concurrently.
+All controllers sharing the physical bus must cooperate in this lock; other
+kernel drivers and raw clients do not do so automatically. Administrative
+activation, close and unload still require quiescent controller traffic.
 
 `target-driver --receive-only` opens the character device without writing
 responses. The kernel peripheral ACKs controller writes while the application
@@ -73,13 +106,14 @@ window title.
 
 ## Lifecycle state machine
 
-| State | GPIO | BSC peripheral | IRQ/timer | I²C behavior |
-| --- | --- | --- | --- | --- |
-| Overlay/module absent | Existing system state | Unmanaged | None | No target supplied by this project |
-| Loaded, never opened | Preserved as found | Disabled | IRQ registered but masked; timer stopped | Address is not acknowledged |
-| Character device open | ALT3, no internal pull | Enabled at configured address | FIFO IRQs enabled; timer running | Requests and responses active |
-| Final close | Input with configured idle pull | Disabled and queues cleared | Masked/stopped | Address is not acknowledged |
-| `SIGKILL` after final descriptor | Same as final close | Disabled | Masked/stopped | Module/overlay remain inert |
+| State | SDA/SCL GPIO | READY (when configured) | BSC peripheral | IRQ/timer | I²C behavior |
+| --- | --- | --- | --- | --- | --- |
+| Overlay/module absent | Existing system state | Unmanaged | Unmanaged | None | No target supplied by this project |
+| Loaded, never opened | Preserved as found | Released | Disabled | IRQ registered but masked; timer stopped | Address is not acknowledged |
+| Character device open, no response | ALT3, no internal pull | Released | Enabled at configured address | FIFO IRQs enabled; timer running | Requests active; reads must await the response READY assertion |
+| Complete response queued | ALT3, no internal pull | Asserted low | Enabled at configured address | FIFO IRQs enabled; timer running | Controller may read the response |
+| Final close | Input with configured idle pull | Released | Disabled and queues cleared | Masked/stopped | Address is not acknowledged |
+| `SIGKILL` after final descriptor | Same as final close | Released | Disabled | Masked/stopped | Module/overlay remain inert |
 
 The driver does not snapshot and restore an arbitrary prior pin configuration.
 It avoids touching a never-opened instance and, after use, selects the explicit
@@ -97,8 +131,8 @@ The driver uses two mechanisms:
 1. Receive/transmit FIFO thresholds invoke a hard IRQ handler, which drains or
    refills the FIFO without waiting for userspace scheduling.
 2. A configurable high-resolution timer (300 µs by default) catches receive
-   tails below the interrupt threshold, detects receive completion, and releases
-   fully loaded responses when the transmit FIFO becomes empty.
+   tails below the interrupt threshold, detects receive completion, and refills
+   responses without inferring whether the controller consumed their last byte.
 
 The timer exists only while the device is open. Its Device Tree range is 20–500
 µs through the `poll_ns` overlay parameter.
@@ -119,21 +153,27 @@ occurs. It observes `RXBUSY` clearing to finish the current receive burst; a
 short idle gap can pass entirely between observations, in which case adjacent
 I²C writes are deliberately retained in one record rather than losing bytes.
 
-The BSC may preload bytes into its transmit serializer, and `TXBUSY` does not
-reliably describe a complete I2C transaction. The driver therefore releases a
-queued response only after all of its bytes have been loaded and the transmit
-FIFO is empty. It does not reset the peripheral at that boundary because the
-final byte may still be shifting onto the wire.
+The BSC can report FIFO empty and TXBUSY clear with a byte still in its
+serializer. Direct register tests on Pi 3B+ confirm identical flags after
+reading two of three bytes and after reading the third. A fully consumed
+response can be followed by a fresh response without resetting the peripheral.
+The driver therefore does not infer response completion from FIFO flags.
+It purges FIFO and serializer only at the next request, using `TXFLEVEL + 1`
+disable/enable transitions; the documented BRK does not reliably purge them.
 
-## Request/response boundary
+Run `python3 tests/tx_serializer.py` to exercise the actual C receive, refill,
+and publication functions against the FIFO/serializer model. It covers long
+staged reads without a guard or reset, abandoned last bytes, and replacement
+of pending requests while an older worker is executing. Hardware qualification
+is needed for electrical behavior and GPIO/IRQ timing.
 
-Userspace cannot inspect a controller write and prepare a reply during an
-immediate repeated START because the target cannot stretch SCL. The example
-controller therefore performs:
+## Profile-supervised target workers
 
-1. One controller write.
-2. A 20 ms processing interval.
-3. One controller read of the known response length.
-
-An application protocol should make this boundary explicit and include error
-detection and retry semantics.
+`target-driver --profile NAME_OR_PATH` uses its existing driver guard while
+launching the installed `usb-gadget-supervisor`. The target launcher never
+opens `/dev/bsc-target0` in this mode; the supervisor opens it according to its
+root-owned device profile and passes the handle to the unprivileged worker.
+Stop and reload signals are forwarded, and the supervisor is reaped before
+unloading. This path introduces no device-protocol implementation or Rust
+crate dependency between the driver project and the worker. Driver loading,
+privilege dropping, and HSM behavior remain in their owning executables.

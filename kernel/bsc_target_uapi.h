@@ -5,7 +5,7 @@
 #include <linux/ioctl.h>
 #include <linux/types.h>
 
-#define BSC_TARGET_ABI_VERSION 1
+#define BSC_TARGET_ABI_VERSION 3
 #define BSC_TARGET_IOC_MAGIC 'B'
 
 struct bsc_target_info {
@@ -25,7 +25,7 @@ struct bsc_target_stats {
 	__u64 tx_transactions;
 	__u64 tx_bytes;
 	__u64 tx_underruns;
-	__u64 tx_short_reads;
+	__u64 tx_discarded;
 	__u64 interrupts;
 	__u64 timer_runs;
 };

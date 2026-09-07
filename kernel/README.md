@@ -7,7 +7,7 @@ The hardware has a 16-byte FIFO, no DMA, no clock stretching, and only 7-bit
 target addresses. The driver combines a three-quarter-full receive threshold
 interrupt with a configurable high-resolution timer (300 µs by default). The
 timer drains sub-threshold receive tails, detects receive completion, and
-releases fully loaded responses when the transmit FIFO becomes empty. The
+refills pending responses from the same locked context. The
 Device Tree `poll_ns` parameter accepts intervals from 20 to 500 µs.
 
 ## Character-device interface
@@ -17,24 +17,50 @@ default. They leave the BSC peripheral disabled and its timer stopped, and do
 not alter the existing GPIO configuration until an application opens the
 character device.
 
-- Each `read()` returns one queued receive record. A record normally contains
-  one controller write, but very short STOP-to-START gaps can cause adjacent
-  writes to be aggregated.
-- Each `write()` queues one complete response for the next controller read.
-- A response must be queued before the controller starts reading because the
-  peripheral cannot stretch SCL.
-- The maximum transaction is 8192 bytes.
-- The receive ring contains 1024 fixed 8192-byte slots (about 8 MiB). If full,
-  it evicts the oldest record, retains the newest traffic, and increments
-  `rx_dropped`.
-- `poll()` reports readable requests and an available response slot.
-- The ioctl ABI in `bsc_target_uapi.h` reports configuration and statistics.
-- A text statistics snapshot is exposed as the platform device's `stats`
-  sysfs attribute.
+Response mode requires an active-low, open-drain READY GPIO and driver ABI 3.
+Upgrade the controller, driver and HSM frontend together. Receive-only display
+workloads do not require READY and retain their 1,024-record receive ring.
 
-The interface intentionally permits one open file at a time. A controller must
-use separate write and read transactions with a processing gap; a repeated
-START cannot wait for userspace to create a response.
+The controller holds the physical bus lock while writing a complete request.
+The driver invalidates the previous result when new input arrives and clears
+old transmit data after the receive burst ends. It then acknowledges cleanup
+with a deasserting READY edge (physical rising edge). If READY was already
+inactive, a short assertion ensures this edge still exists; the assertion is
+held for 20 µs so the controller GPIO can latch it. During this request phase,
+that pulse is an acknowledgment, not a response. Arm rising-only GPIO detection before writing and discard stale events. After
+acknowledgment, arm falling-only detection and check the current response level.
+A reply arriving before reconfiguration stays asserted; a later reply wakes the
+waiter. Linux both-edge detection may classify an interrupt by sampling the pin
+in its deferred handler, mislabeling a short inactive interval. Single-edge
+selection avoids that ambiguity without extending response timing.
+
+After the acknowledgment the controller releases the bus, waits for the next
+READY assertion, then reacquires the bus to read the exact response length.
+The driver queues only response bytes. READY stays asserted after the read;
+there is no guard byte, fallback marker, drain timeout, or post-read reset.
+The next request clears any leftovers, including abandoned reads. No peripheral
+reset occurs while another target is computing or publishing its response.
+
+One worker executes requests sequentially. With READY, the driver retains only
+one pending request, replacing it when newer input arrives. A worker response
+is published only if it belongs to the latest receive generation; a superseded
+write succeeds but discards its bytes. This cannot undo an executed operation's
+side effects. A controller must not automatically replay uncertain commands.
+A read and its corresponding write belong to one worker; concurrent worker
+reads are not supported. Requests must have a STOP and wait for acknowledgment
+before another request; arbitrary adjacent writes can merge into one record.
+
+The bus lock also covers the entire header/body read. It does not cover HSM
+computation, so targets with separate READY lines can progress concurrently.
+All controllers sharing the physical bus must cooperate in this lock; other
+kernel drivers and raw clients do not do so automatically. Administrative
+activation, close and unload still require quiescent controller traffic.
+
+The character device permits one open at a time. `read()` dequeues a request;
+`write()` publishes or discards its result atomically against new input. See
+[`bsc_target_uapi.h`](bsc_target_uapi.h) for ABI 3 configuration and counters.
+`reserved[0]` in GET_INFO reports whether READY is configured. Responses cannot
+be written without READY. Published-byte counters do not prove wire delivery.
 
 Opening the device selects the target pins, enables the peripheral and starts
 the high-resolution timer. The final close reverses those actions and clears
@@ -60,15 +86,15 @@ root; it detects Pi 3 versus Pi 4, applies the matching runtime overlay, loads
 the module, and opens the character device:
 
 ```sh
-sudo ./prebuilt/aarch64/target-driver  # Raspberry Pi OS ARM64
-# or: sudo ./target/release/target-driver  # locally built Rust executable
+sudo ./prebuilt/aarch64/target-driver --ready-gpio 17  # Raspberry Pi OS ARM64
+# or: sudo ./target/release/target-driver --ready-gpio 17  # locally built Rust executable
 ```
 
 The default address is `0x13`. An alternative address and kernel artifact
 directory can be supplied explicitly:
 
 ```sh
-sudo ./target/release/target-driver 0x24 ./kernel
+sudo ./target/release/target-driver --ready-gpio 17 0x24 ./kernel
 ```
 
 Use receive-only mode for controllers that only write, such as an OLED display
@@ -80,6 +106,16 @@ sudo ./target/release/target-driver --receive-only 0x3c ./kernel
 ```
 
 `--no-answer` is an equivalent alias.
+
+A READY input is required for request/response controllers. GPIO numbers use
+BCM numbering; GPIO17 is an example:
+
+```sh
+sudo ./target/release/target-driver --ready-gpio 17 0x24 ./kernel
+```
+
+Connect it to a pulled-up controller input. The SDA/SCL target pins and GPIO
+controllers requiring sleeping operations cannot be used as READY.
 
 The independent `virtual-display` application loads the same kernel target
 itself, decodes SSD1306 or SH1106 streams into one canonical 128x64 monochrome
@@ -100,9 +136,9 @@ Idle pull policy belongs to the overlay rather than the C driver. It defaults
 to no pull and can be selected by the loading application:
 
 ```sh
-sudo ./target/release/target-driver --idle-pull none
-sudo ./target/release/target-driver --idle-pull down
-sudo ./target/release/target-driver --idle-pull up
+sudo ./target/release/target-driver --ready-gpio 17 --idle-pull none
+sudo ./target/release/target-driver --ready-gpio 17 --idle-pull down
+sudo ./target/release/target-driver --ready-gpio 17 --idle-pull up
 ```
 
 The equivalent overlay parameter is `idle_pull=0`, `1`, or `2`, respectively.
@@ -125,9 +161,10 @@ sudo ./target/release/target-driver --unload
 This command is also safe when nothing is loaded. If another process has
 `/dev/bsc-target0` open, module removal fails and the overlay is left in place.
 
-Initial wired tests at 400 kHz have passed, including 1024-byte requests, but
-sustained-load qualification remains pending. Retain CRC, timeouts, error
-counters, and controller retries even when the kernel driver is used. The
-driver substantially reduces scheduling risk by servicing FIFO thresholds in
-hard-IRQ context, but this peripheral has no clock stretching or DMA, so a
-general-purpose Linux kernel cannot provide a mathematical no-overrun guarantee.
+Wired qualification at the configured 400 kHz rate covers long randomized
+responses, delayed staged reads, and simultaneous exchanges to two targets
+under CPU load. Retain CRC, timeouts, error counters, and controller retries
+even when the kernel driver is used. The driver substantially reduces
+scheduling risk by servicing FIFO thresholds in hard-IRQ context, but this
+peripheral has no clock stretching or DMA, so a general-purpose Linux kernel
+cannot provide a mathematical no-overrun guarantee.
