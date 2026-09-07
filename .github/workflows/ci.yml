@@ -26,5 +26,7 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Verify prebuilt Rust checksums
         run: cd prebuilt/aarch64 && sha256sum --check SHA256SUMS
+      - name: Test transmit state machine
+        run: python3 tests/tx_serializer.py
       - name: Compile overlays
         run: make -C kernel overlays

@@ -419,7 +419,7 @@ fn main() -> io::Result<()> {
         signal(SIGTERM, stop as *const () as usize);
     }
 
-    let mut guard = DriverGuard::load(&kernel_directory, address, options.idle_pull)?;
+    let mut guard = DriverGuard::load(&kernel_directory, address, options.idle_pull, None)?;
     println!(
         "temporarily loaded {} target driver at 0x{address:02x}, idle pull {}",
         guard.hardware_name(),

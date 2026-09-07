@@ -19,15 +19,18 @@ lifecycle and never changes the boot configuration. Its 1,024-record receive
 ring occupies about 8 MiB, keeps the newest traffic when full, and gives slow
 userspace consumers substantial time to catch up.
 
-> **Hardware status:** module compilation, MMIO/IRQ discovery, pin multiplexing,
-> character-device lifecycle, FIFO queuing, exclusive-open behavior, configurable
-> idle pulls, cleanup, and `SIGKILL` final-close handling have been exercised on
-> Pi 3 and Pi 4 hardware. Initial Pi 5-controller to Pi 3B+-target wired tests at
-> the configured 400 kHz rate passed response sizes from 6 through 1029 bytes
-> with no drops, overruns, underruns, or short reads. SSD1306 and SH1106 display
-> streams, receive-ring overflow/recovery, SDL rendering, and remote GPIO button
-> input have also been exercised end to end. Complete signal-integrity
-> qualification remains pending.
+Request/response mode requires active-low, open-drain READY. A request
+acknowledges transmit cleanup with a READY deasserting edge; the following
+assertion announces its response. The controller can release the shared bus
+while the target computes. Only actual response bytes are queued, and the
+next request replaces any abandoned response. See the
+[exchange contract](docs/architecture.md#character-device-contract).
+
+Receive-only OLED workloads retain the original two-wire interface and receive
+ring. The separate direct-MMIO demonstration is unchanged.
+
+Hardware validation requirements and results are in the
+[bench plan](docs/hardware-test-plan.md).
 
 ## Supported hardware
 
@@ -159,21 +162,35 @@ directory remains available for advanced use.
 Start the target first. Use the checked-in Rust executable on Raspberry Pi OS:
 
 ```sh
-sudo ./prebuilt/aarch64/target-driver
+sudo ./prebuilt/aarch64/target-driver --ready-gpio 17
 ```
 
 Or use the locally built executable on Ubuntu:
 
 ```sh
-sudo ./target/release/target-driver
+sudo ./target/release/target-driver --ready-gpio 17
 ```
 
 The default address is `0x13`. Override the address and, when necessary, the
 directory containing the `.ko` and `.dtbo` artifacts:
 
 ```sh
-sudo ./target/release/target-driver 0x24 ./kernel
+sudo ./target/release/target-driver --ready-gpio 17 0x24 ./kernel
 ```
+
+Response mode requires a target GPIO for the READY handshake. GPIO numbers use
+the BCM numbering scheme; GPIO17 is only an example:
+
+```sh
+sudo ./target/release/target-driver --ready-gpio 17 0x24 ./kernel
+```
+
+Wire that GPIO to an input on the controller and enable the controller input's
+pull-up. After request cleanup acknowledgment, the active-low output indicates a response
+when low: one response
+is published to hardware and available to read. Do not select GPIO18/19 on a Pi 3 target or GPIO10/11
+on a Pi 4 target because those pins carry this driver's SDA/SCL signals. No
+READY GPIO is acquired unless `--ready-gpio` is supplied.
 
 The Rust application detects Pi 3 versus Pi 4, applies the matching runtime
 overlay, loads the module, opens `/dev/bsc-target0`, and removes the module and
@@ -253,6 +270,42 @@ title defaults to `Virtual I2C display - <controller>`.
 The SDL view applies the segment/COM orientation used by the physical display
 while leaving received framebuffer bytes unchanged.
 
+### Launch an unprivileged device profile
+
+`target-driver` can load the driver for a separate device
+worker through the installed `usb-gadget-supervisor`:
+
+```sh
+cargo build --release --locked --bin target-driver
+sudo ./target/release/target-driver --profile virtual-yubihsm-i2c --ready-gpio 17 0x24 ./kernel
+```
+
+Install the supervisor at
+`/opt/usb-gadget-supervisor/usb-gadget-supervisor` and install a root-owned
+`mode = "device"` profile first. The supervisor accepts the installed profile
+name or an absolute profile path. It opens the profile's declared character
+device, passes FD 3, and drops the worker to the configured account. See the
+[Virtual YubiHSM setup](https://github.com/qpernil/virtual-yubihsm/blob/main/docs/i2c.md#manual-bench-test).
+On ARM64 targets, the checksummed `prebuilt/aarch64/target-driver` also
+supports this mode.
+
+Use `--ready-gpio` and an ABI 3 controller with READY edge acknowledgment.
+Polling-only HSM configurations are unsupported.
+
+The launcher reuses its normal overlay/module lifecycle and does not open or
+respond on the target device in profile mode. `--receive-only` is rejected with `--profile`. READY GPIO, address, kernel
+directory, and idle pull remain driver options. The supervisor executable is
+fixed; executable, account, and device permissions come from its root-owned
+profile. No profile-controlled privileged shell hook is introduced.
+
+Ctrl-C/SIGTERM requests supervisor shutdown and allows up to eight seconds
+before killing it. SIGHUP forwards a profile reload. The child is reaped before
+normal module/overlay cleanup. On Linux, unexpected launcher death sends
+SIGTERM to the supervisor, whose own parent-death protection covers its
+worker. SIGKILL can leave the module/overlay loaded; `--unload` removes them
+once the device is closed. The profile launcher can also be used as a systemd
+`ExecStart` with `KillMode=mixed`, as shown in the HSM service recipe.
+
 ### Idle pin policy
 
 Loading but not opening the device leaves the existing GPIO configuration
@@ -260,9 +313,9 @@ untouched. Opening selects ALT3 with no internal pulls. Final close selects an
 input state whose pull policy comes from the overlay/application:
 
 ```sh
-sudo ./target/release/target-driver --idle-pull none  # default
-sudo ./target/release/target-driver --idle-pull down
-sudo ./target/release/target-driver --idle-pull up
+sudo ./target/release/target-driver --ready-gpio 17 --idle-pull none  # default
+sudo ./target/release/target-driver --ready-gpio 17 --idle-pull down
+sudo ./target/release/target-driver --ready-gpio 17 --idle-pull up
 ```
 
 The C driver contains no hardcoded idle-pull policy. The equivalent direct
@@ -355,9 +408,10 @@ while the character device is closed.
 - This is a single-controller, single-responder demonstration. Production use
   should add framing, lengths, checksums/CRC, sequence numbers, timeouts, retries,
   and idempotency.
-- Initial wired functional validation at the configured 400 kHz rate has
-  passed. The 100 kHz matrix, sustained load, and full signal-integrity work in
-  the [hardware validation plan](docs/hardware-test-plan.md) remain pending.
+- Current wired qualification covers delayed and simultaneous exchanges at the
+  configured 400 kHz rate. The complete 100 kHz matrix, sustained
+  multi-million-byte load, and electrical margins in the
+  [hardware validation plan](docs/hardware-test-plan.md) remain open.
 
 ## Troubleshooting
 

@@ -8,12 +8,15 @@
  * RXBUSY/TXBUSY dropping at STOP. A closed device stays electrically idle.
  */
 
+#include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/fs.h>
+#include <linux/gpio/consumer.h>
 #include <linux/hrtimer.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
+#include <linux/ktime.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
@@ -53,6 +56,8 @@
 #define FR_RXFF BIT(3)
 #define FR_TXFE BIT(4)
 #define FR_RXBUSY BIT(5)
+#define FR_TXFLEVEL_SHIFT 6
+#define FR_TXFLEVEL_MASK 0x1f
 
 #define IRQ_RX BIT(0)
 #define IRQ_TX BIT(1)
@@ -71,7 +76,6 @@
 #define BSC_DEFAULT_POLL_NS 300000
 #define BSC_MIN_POLL_NS 20000
 #define BSC_MAX_POLL_NS 500000
-
 struct bsc_rx_slot {
 	u32 len;
 	u8 data[BSC_MAX_TRANSFER];
@@ -86,13 +90,13 @@ struct bsc_target {
 	struct pinctrl *pinctrl;
 	struct pinctrl_state *pins_active;
 	struct pinctrl_state *pins_idle;
+	struct gpio_desc *ready_gpio;
 
 	spinlock_t lock;
 	struct mutex state_lock;
 	struct mutex read_lock;
 	struct mutex write_lock;
 	wait_queue_head_t rx_wait;
-	wait_queue_head_t tx_wait;
 	atomic_t opened;
 	bool dead;
 	bool active;
@@ -110,11 +114,20 @@ struct bsc_target {
 	size_t tx_len;
 	size_t tx_loaded;
 	bool tx_queued;
+	u64 request_generation;
+	u64 worker_generation;
+	bool worker_pending;
 
 	struct bsc_target_stats stats;
 	struct hrtimer timer;
 	struct miscdevice miscdev;
 };
+
+static void bsc_set_ready(struct bsc_target *bsc, bool ready)
+{
+	if (bsc->ready_gpio)
+		gpiod_set_value(bsc->ready_gpio, ready);
+}
 
 static inline u32 bsc_read(struct bsc_target *bsc, u32 reg)
 {
@@ -135,10 +148,27 @@ static void bsc_set_interrupts_locked(struct bsc_target *bsc)
 	bsc_write(bsc, IMSC, mask);
 }
 
+static void bsc_purge_tx_fifo_locked(struct bsc_target *bsc)
+{
+	u32 count = ((bsc_read(bsc, FR) >> FR_TXFLEVEL_SHIFT) &
+		     FR_TXFLEVEL_MASK) + 1;
+
+	/*
+	 * BRK and a plain disable do not clear this peripheral's transmit FIFO
+	 * on BCM2835-family silicon. Each enable transition moves one FIFO byte
+	 * into the serializer, so TXFLEVEL + 1 transitions discard both places.
+	 */
+	bsc_write(bsc, CR, 0);
+	while (count--) {
+		bsc_write(bsc, CR, CR_EN | CR_TXE);
+		bsc_write(bsc, CR, 0);
+	}
+}
+
 static void bsc_configure_locked(struct bsc_target *bsc)
 {
 	bsc_write(bsc, IMSC, 0);
-	bsc_write(bsc, CR, 0);
+	bsc_purge_tx_fifo_locked(bsc);
 	bsc_write(bsc, RSR, 0);
 	bsc_write(bsc, SLV, bsc->address);
 	bsc_write(bsc, IFLS, IFLS_DEFAULT);
@@ -157,6 +187,10 @@ static void bsc_reset_io_locked(struct bsc_target *bsc)
 	bsc->tx_len = 0;
 	bsc->tx_loaded = 0;
 	bsc->tx_queued = false;
+	bsc->request_generation = 0;
+	bsc->worker_generation = 0;
+	bsc->worker_pending = false;
+	bsc_set_ready(bsc, false);
 }
 
 static void bsc_disable_locked(struct bsc_target *bsc)
@@ -173,6 +207,15 @@ static void bsc_drain_rx_locked(struct bsc_target *bsc)
 	while (!(bsc_read(bsc, FR) & FR_RXFE)) {
 		u8 byte = bsc_read(bsc, DR);
 
+		if (!bsc->rx_work_len && !bsc->rx_overflowed) {
+			/* Invalidate a result even while its worker is still executing. */
+			bsc->request_generation++;
+			bsc->tx_queued = false;
+			if (bsc->ready_gpio && bsc->rx_count) {
+				bsc->stats.rx_dropped += bsc->rx_count;
+				bsc->rx_head = bsc->rx_tail = bsc->rx_count = 0;
+			}
+		}
 		if (bsc->rx_work_len < BSC_MAX_TRANSFER)
 			bsc->rx_work[bsc->rx_work_len++] = byte;
 		else
@@ -185,7 +228,6 @@ static void bsc_refill_tx_locked(struct bsc_target *bsc)
 	while (bsc->tx_queued && bsc->tx_loaded < bsc->tx_len &&
 	       !(bsc_read(bsc, FR) & FR_TXFF))
 		bsc_write(bsc, DR, bsc->tx_data[bsc->tx_loaded++]);
-
 	bsc_set_interrupts_locked(bsc);
 }
 
@@ -195,6 +237,17 @@ static void bsc_finish_rx_locked(struct bsc_target *bsc)
 
 	if (!bsc->rx_work_len && !bsc->rx_overflowed)
 		return;
+
+	if (bsc->ready_gpio) {
+		bsc->tx_len = bsc->tx_loaded = 0;
+		bsc_configure_locked(bsc);
+		/* Guarantee a cleanup edge even when recovering during computation.
+		 * Controllers arm rising-only GPIO detection before the request.
+		 */
+		bsc_set_ready(bsc, true);
+		udelay(20);
+		bsc_set_ready(bsc, false);
+	}
 
 	if (bsc->rx_overflowed) {
 		bsc->stats.rx_overruns++;
@@ -219,35 +272,10 @@ static void bsc_finish_rx_locked(struct bsc_target *bsc)
 	bsc->rx_overflowed = false;
 }
 
-static void bsc_finish_tx_locked(struct bsc_target *bsc, size_t consumed)
-{
-	bool short_read = consumed < bsc->tx_len;
-
-	bsc->stats.tx_transactions++;
-	bsc->stats.tx_bytes += consumed;
-	if (short_read)
-		bsc->stats.tx_short_reads++;
-
-	bsc->tx_queued = false;
-	bsc->tx_len = 0;
-	bsc->tx_loaded = 0;
-
-	/* A short controller read leaves stale bytes in the hardware FIFO. */
-	if (short_read)
-		bsc_configure_locked(bsc);
-	else
-		bsc_set_interrupts_locked(bsc);
-
-	wake_up_interruptible(&bsc->tx_wait);
-}
-
 static void bsc_service_locked(struct bsc_target *bsc)
 {
-	u32 status;
-	u32 flags;
-	bool rx_busy;
+	u32 status = bsc_read(bsc, RSR);
 
-	status = bsc_read(bsc, RSR);
 	if (status & RSR_OE)
 		bsc->stats.rx_overruns++;
 	if (status & RSR_UE)
@@ -256,30 +284,9 @@ static void bsc_service_locked(struct bsc_target *bsc)
 		bsc_write(bsc, RSR, 0);
 
 	bsc_drain_rx_locked(bsc);
-	if (bsc->tx_queued)
-		bsc_refill_tx_locked(bsc);
-
-	flags = bsc_read(bsc, FR);
-	rx_busy = flags & FR_RXBUSY;
-
-	if (!rx_busy && (bsc->rx_work_len || bsc->rx_overflowed))
+	if (!(bsc_read(bsc, FR) & FR_RXBUSY))
 		bsc_finish_rx_locked(bsc);
-
-	if (!bsc->tx_queued)
-		return;
-
-	/*
-	 * TXBUSY describes movement between the FIFO and the serializer, not a
-	 * complete I2C controller transaction. In particular, it may clear
-	 * between bytes. Resetting the peripheral on that transition discards
-	 * the first queued byte or truncates a byte already being shifted.
-	 *
-	 * Once every response byte has entered the hardware and TXFE is set,
-	 * release the software slot without resetting the peripheral. The final
-	 * byte may still be in the serializer and must be allowed to finish.
-	 */
-	if (bsc->tx_loaded == bsc->tx_len && (flags & FR_TXFE))
-		bsc_finish_tx_locked(bsc, bsc->tx_len);
+	bsc_refill_tx_locked(bsc);
 }
 
 static irqreturn_t bsc_irq(int irq, void *data)
@@ -309,6 +316,7 @@ static enum hrtimer_restart bsc_timer(struct hrtimer *timer)
 {
 	struct bsc_target *bsc = container_of(timer, struct bsc_target, timer);
 	unsigned long flags;
+	u32 interval_ns;
 
 	spin_lock_irqsave(&bsc->lock, flags);
 	if (bsc->dead || !bsc->active) {
@@ -317,9 +325,10 @@ static enum hrtimer_restart bsc_timer(struct hrtimer *timer)
 	}
 	bsc->stats.timer_runs++;
 	bsc_service_locked(bsc);
+	interval_ns = bsc->poll_interval_ns;
 	spin_unlock_irqrestore(&bsc->lock, flags);
 
-	hrtimer_forward_now(timer, ns_to_ktime(bsc->poll_interval_ns));
+	hrtimer_forward_now(timer, ns_to_ktime(interval_ns));
 	return HRTIMER_RESTART;
 }
 
@@ -409,6 +418,7 @@ static ssize_t bsc_read_message(struct file *file, char __user *buffer,
 	if (mutex_lock_interruptible(&bsc->read_lock))
 		return -ERESTARTSYS;
 
+retry:
 	for (;;) {
 		if (READ_ONCE(bsc->dead)) {
 			ret = -ENODEV;
@@ -427,6 +437,10 @@ static ssize_t bsc_read_message(struct file *file, char __user *buffer,
 	}
 
 	spin_lock_irqsave(&bsc->lock, flags);
+	if (!bsc->rx_count) {
+		spin_unlock_irqrestore(&bsc->lock, flags);
+		goto retry;
+	}
 	slot = &bsc->rx_slots[bsc->rx_head];
 	len = slot->len;
 	if (count < len) {
@@ -437,6 +451,8 @@ static ssize_t bsc_read_message(struct file *file, char __user *buffer,
 	memcpy(bsc->rx_read, slot->data, len);
 	bsc->rx_head = (bsc->rx_head + 1) % BSC_RX_SLOTS;
 	bsc->rx_count--;
+	bsc->worker_generation = bsc->request_generation;
+	bsc->worker_pending = true;
 	spin_unlock_irqrestore(&bsc->lock, flags);
 
 	if (copy_to_user(buffer, bsc->rx_read, len)) {
@@ -450,13 +466,41 @@ out_unlock:
 	return ret;
 }
 
+static int bsc_publish_response_locked(struct bsc_target *bsc,
+				       const u8 *data, size_t count)
+{
+	/* Observe new input before deciding whether this worker still owns it. */
+	bsc_service_locked(bsc);
+	if (!bsc->ready_gpio) {
+		return -EOPNOTSUPP;
+	}
+	if (!bsc->worker_pending) {
+		return -EPROTO;
+	}
+	bsc->worker_pending = false;
+	if (bsc->worker_generation != bsc->request_generation ||
+	    bsc->rx_work_len || (bsc_read(bsc, FR) & FR_RXBUSY)) {
+		/* A superseded result is consumed, never published or retried. */
+		bsc->stats.tx_discarded++;
+	} else {
+		memcpy(bsc->tx_data, data, count);
+		bsc->tx_len = count;
+		bsc->tx_loaded = 0;
+		bsc->tx_queued = true;
+		bsc_refill_tx_locked(bsc);
+		bsc->stats.tx_transactions++;
+		bsc->stats.tx_bytes += count;
+		bsc_set_ready(bsc, true);
+	}
+	return count;
+}
+
 static ssize_t bsc_queue_response(struct file *file, const char __user *buffer,
 				  size_t count, loff_t *offset)
 {
 	struct bsc_target *bsc = file->private_data;
 	unsigned long flags;
 	u8 *temporary;
-	u32 hw_flags;
 	int ret;
 
 	if (!count || count > BSC_MAX_TRANSFER)
@@ -471,43 +515,14 @@ static ssize_t bsc_queue_response(struct file *file, const char __user *buffer,
 		return -ERESTARTSYS;
 	}
 
-	for (;;) {
-		if (READ_ONCE(bsc->dead)) {
-			ret = -ENODEV;
-			goto out;
-		}
-		if (!READ_ONCE(bsc->tx_queued))
-			break;
-		if (file->f_flags & O_NONBLOCK) {
-			ret = -EAGAIN;
-			goto out;
-		}
-		ret = wait_event_interruptible(bsc->tx_wait,
-			!READ_ONCE(bsc->tx_queued) || READ_ONCE(bsc->dead));
-		if (ret)
-			goto out;
-	}
-
 	spin_lock_irqsave(&bsc->lock, flags);
-	bsc_drain_rx_locked(bsc);
-	hw_flags = bsc_read(bsc, FR);
-	if (!(hw_flags & FR_RXBUSY) &&
-	    (bsc->rx_work_len || bsc->rx_overflowed))
-		bsc_finish_rx_locked(bsc);
-	if ((hw_flags & (FR_RXBUSY | FR_TXBUSY)) || bsc->rx_work_len ||
-	    bsc->rx_overflowed) {
+	if (bsc->dead || !bsc->active) {
 		spin_unlock_irqrestore(&bsc->lock, flags);
-		ret = -EBUSY;
+		ret = -ENODEV;
 		goto out;
 	}
-
-	memcpy(bsc->tx_data, temporary, count);
-	bsc->tx_len = count;
-	bsc->tx_loaded = 0;
-	bsc->tx_queued = true;
-	bsc_refill_tx_locked(bsc);
+	ret = bsc_publish_response_locked(bsc, temporary, count);
 	spin_unlock_irqrestore(&bsc->lock, flags);
-	ret = count;
 
 out:
 	mutex_unlock(&bsc->write_lock);
@@ -521,12 +536,11 @@ static __poll_t bsc_poll(struct file *file, poll_table *wait)
 	__poll_t mask = 0;
 
 	poll_wait(file, &bsc->rx_wait, wait);
-	poll_wait(file, &bsc->tx_wait, wait);
 	if (READ_ONCE(bsc->dead))
 		return EPOLLERR | EPOLLHUP;
 	if (READ_ONCE(bsc->rx_count))
 		mask |= EPOLLIN | EPOLLRDNORM;
-	if (!READ_ONCE(bsc->tx_queued))
+	if (READ_ONCE(bsc->worker_pending))
 		mask |= EPOLLOUT | EPOLLWRNORM;
 	return mask;
 }
@@ -541,6 +555,7 @@ static long bsc_ioctl(struct file *file, unsigned int command,
 		.fifo_size = BSC_FIFO_SIZE,
 		.max_transfer = BSC_MAX_TRANSFER,
 		.poll_interval_ns = bsc->poll_interval_ns,
+		.reserved = { bsc->ready_gpio != NULL },
 	};
 	struct bsc_target_stats stats;
 	unsigned long flags;
@@ -590,7 +605,7 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr,
 	return sysfs_emit(buffer,
 		"rx_transactions=%llu rx_bytes=%llu rx_overruns=%llu "
 		"rx_dropped=%llu tx_transactions=%llu tx_bytes=%llu "
-		"tx_underruns=%llu tx_short_reads=%llu interrupts=%llu "
+		"tx_underruns=%llu tx_discarded=%llu interrupts=%llu "
 		"timer_runs=%llu\n",
 		(unsigned long long)stats.rx_transactions,
 		(unsigned long long)stats.rx_bytes,
@@ -599,7 +614,7 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr,
 		(unsigned long long)stats.tx_transactions,
 		(unsigned long long)stats.tx_bytes,
 		(unsigned long long)stats.tx_underruns,
-		(unsigned long long)stats.tx_short_reads,
+		(unsigned long long)stats.tx_discarded,
 		(unsigned long long)stats.interrupts,
 		(unsigned long long)stats.timer_runs);
 }
@@ -655,6 +670,15 @@ static int bsc_probe(struct platform_device *pdev)
 			BSC_MIN_POLL_NS, BSC_MAX_POLL_NS);
 	bsc->poll_interval_ns = poll_ns;
 
+	bsc->ready_gpio = devm_gpiod_get_optional(&pdev->dev, "ready",
+						   GPIOD_OUT_LOW_OPEN_DRAIN);
+	if (IS_ERR(bsc->ready_gpio))
+		return dev_err_probe(&pdev->dev, PTR_ERR(bsc->ready_gpio),
+			"cannot acquire optional ready GPIO\n");
+	if (bsc->ready_gpio && gpiod_cansleep(bsc->ready_gpio))
+		return dev_err_probe(&pdev->dev, -EINVAL,
+			"ready GPIO must support atomic updates\n");
+
 	bsc->pinctrl = devm_pinctrl_get(&pdev->dev);
 	if (IS_ERR(bsc->pinctrl))
 		return dev_err_probe(&pdev->dev, PTR_ERR(bsc->pinctrl),
@@ -672,7 +696,6 @@ static int bsc_probe(struct platform_device *pdev)
 	mutex_init(&bsc->read_lock);
 	mutex_init(&bsc->write_lock);
 	init_waitqueue_head(&bsc->rx_wait);
-	init_waitqueue_head(&bsc->tx_wait);
 	atomic_set(&bsc->opened, 0);
 	hrtimer_setup(&bsc->timer, bsc_timer, CLOCK_MONOTONIC,
 		      HRTIMER_MODE_REL_PINNED);
@@ -716,7 +739,6 @@ static void bsc_remove(struct platform_device *pdev)
 	bsc_deactivate(bsc);
 	mutex_unlock(&bsc->state_lock);
 	wake_up_interruptible(&bsc->rx_wait);
-	wake_up_interruptible(&bsc->tx_wait);
 	synchronize_irq(bsc->irq);
 
 	device_remove_file(&pdev->dev, &dev_attr_stats);

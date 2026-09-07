@@ -43,9 +43,20 @@
 		};
 	};
 
+	fragment@2 {
+		target = <&bsc_target>;
+		__dormant__ {
+			/* Active-low, open-drain response-ready output. */
+			/* 0x01 active-low | 0x40 open-drain. */
+			ready-gpios = <&gpio 17 0x41>;
+		};
+	};
+
 	__overrides__ {
 		addr = <&bsc_target>, "brcm,slave-address:0";
 		poll_ns = <&bsc_target>, "brcm,poll-interval-ns:0";
+		ready_gpio = <0>, "+2",
+			     <&bsc_target>, "ready-gpios:4";
 		idle_pull = <&bsc_target_idle>, "brcm,pull:0",
 			    <&bsc_target_idle>, "brcm,pull:4";
 	};
