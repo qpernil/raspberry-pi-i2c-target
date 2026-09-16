@@ -10,8 +10,12 @@ keywords = ["raspberry-pi", "i2c", "embedded-linux"]
 categories = ["embedded", "hardware-support"]
 publish = false
 
-# Deliberately crate-dependency-free. Linux interfaces and system SDL2 are
-# called directly; only virtual-display needs SDL2 at link/runtime.
+# Deliberately external-crate-dependency-free. Linux interfaces and system SDL2
+# are called directly; display support can be disabled by lifecycle consumers.
+
+[features]
+default = ["display"]
+display = []
 
 [[bin]]
 name = "controller"
