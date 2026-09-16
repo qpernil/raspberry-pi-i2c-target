@@ -15,7 +15,6 @@ pub const DEVICE: &str = "/dev/bsc-target0";
 pub const MAX_TRANSFER: usize = 8192;
 
 const MODULE_NAME: &str = "bcm27xx_bsc_target";
-const MODULE_FILE: &str = "bcm27xx_bsc_target.ko";
 const OVERLAY_NAMES: [&str; 2] = ["bsc-target-pi3", "bsc-target-pi4"];
 
 unsafe extern "C" {
@@ -25,6 +24,7 @@ unsafe extern "C" {
 #[derive(Clone, Copy)]
 struct Hardware {
     name: &'static str,
+    model_contains: &'static str,
     overlay: &'static str,
     target_pins: [u32; 2],
 }
@@ -36,6 +36,7 @@ impl Hardware {
         if model.contains("Raspberry Pi 3 Model B") {
             return Ok(Self {
                 name: "Raspberry Pi 3",
+                model_contains: "Raspberry Pi 3 Model B",
                 overlay: "bsc-target-pi3",
                 target_pins: [18, 19],
             });
@@ -43,6 +44,7 @@ impl Hardware {
         if model.contains("Raspberry Pi 4 Model B") {
             return Ok(Self {
                 name: "Raspberry Pi 4",
+                model_contains: "Raspberry Pi 4 Model B",
                 overlay: "bsc-target-pi4",
                 target_pins: [10, 11],
             });
@@ -55,6 +57,16 @@ impl Hardware {
             ),
         ))
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct DriverConfiguration<'a> {
+    pub hardware_name: &'a str,
+    pub model_contains: &'a str,
+    pub overlay: &'a str,
+    pub module: &'a str,
+    pub device: &'a Path,
+    pub target_pins: &'a [u32],
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -143,7 +155,11 @@ pub fn parse_gpio(value: &str) -> io::Result<u32> {
     Ok(gpio)
 }
 
-fn validate_ready_gpio(hardware: Hardware, ready_gpio: Option<u32>) -> io::Result<()> {
+fn validate_ready_gpio(
+    hardware_name: &str,
+    target_pins: &[u32],
+    ready_gpio: Option<u32>,
+) -> io::Result<()> {
     if let Some(gpio) = ready_gpio {
         if gpio > 53 {
             return Err(io::Error::new(
@@ -151,12 +167,12 @@ fn validate_ready_gpio(hardware: Hardware, ready_gpio: Option<u32>) -> io::Resul
                 "ready GPIO must be a BCM GPIO number in 0..=53",
             ));
         }
-        if hardware.target_pins.contains(&gpio) {
+        if target_pins.contains(&gpio) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!(
                     "GPIO{gpio} is used by the I2C target peripheral on {}",
-                    hardware.name
+                    hardware_name
                 ),
             ));
         }
@@ -193,9 +209,14 @@ fn newer_source(output: &Path, sources: &[PathBuf]) -> io::Result<Option<PathBuf
     Ok(None)
 }
 
-fn ensure_artifacts_current(directory: &Path, hardware: Hardware) -> io::Result<()> {
-    let module = directory.join(MODULE_FILE);
-    let overlay = directory.join(format!("{}.dtbo", hardware.overlay));
+fn ensure_artifacts_current(
+    directory: &Path,
+    module_name: &str,
+    overlay_name: &str,
+) -> io::Result<()> {
+    let module_file = format!("{module_name}.ko");
+    let module = directory.join(&module_file);
+    let overlay = directory.join(format!("{overlay_name}.dtbo"));
     if !module.is_file() || !overlay.is_file() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
@@ -209,12 +230,12 @@ fn ensure_artifacts_current(directory: &Path, hardware: Hardware) -> io::Result<
 
     let makefile = directory.join("Makefile");
     let module_sources = [
-        directory.join("bcm27xx_bsc_target.c"),
+        directory.join(format!("{module_name}.c")),
         directory.join("bsc_target_uapi.h"),
         makefile.clone(),
     ];
     let overlay_sources = [
-        directory.join(format!("{}-overlay.dts", hardware.overlay)),
+        directory.join(format!("{overlay_name}-overlay.dts")),
         makefile,
     ];
     let stale_source =
@@ -261,18 +282,16 @@ fn overlay_is_active(list: &str, overlay: &str) -> bool {
     list.split_ascii_whitespace().any(|word| word == overlay)
 }
 
-fn ensure_unloaded() -> io::Result<()> {
-    if Path::new(DEVICE).exists() || Path::new("/sys/module").join(MODULE_NAME).exists() {
+fn ensure_unloaded(configuration: DriverConfiguration<'_>) -> io::Result<()> {
+    if configuration.device.exists() || Path::new("/sys/module").join(configuration.module).exists()
+    {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
             "target module is already loaded; unload it before starting the app",
         ));
     }
     let overlays = active_overlays()?;
-    if OVERLAY_NAMES
-        .iter()
-        .any(|overlay| overlay_is_active(&overlays, overlay))
-    {
+    if overlay_is_active(&overlays, configuration.overlay) {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
             "a BSC target overlay is already active; unload it first",
@@ -282,35 +301,59 @@ fn ensure_unloaded() -> io::Result<()> {
 }
 
 pub fn unload_existing() -> io::Result<bool> {
-    let module_path = Path::new("/sys/module").join(MODULE_NAME);
+    let mut changed = unload_existing_configured(DriverConfiguration {
+        hardware_name: "Raspberry Pi BSC target",
+        model_contains: "Raspberry Pi",
+        overlay: OVERLAY_NAMES[0],
+        module: MODULE_NAME,
+        device: Path::new(DEVICE),
+        target_pins: &[],
+    })?;
+    let overlays = active_overlays()?;
+    if overlay_is_active(&overlays, OVERLAY_NAMES[1]) {
+        run_command(
+            "dtoverlay",
+            &[OsStr::new("-r"), OsStr::new(OVERLAY_NAMES[1])],
+        )?;
+        changed = true;
+    }
+    Ok(changed)
+}
+
+pub fn unload_existing_configured(configuration: DriverConfiguration<'_>) -> io::Result<bool> {
+    let module_path = Path::new("/sys/module").join(configuration.module);
     let module_loaded = module_path.exists();
-    if Path::new(DEVICE).exists() && !module_loaded {
+    if configuration.device.exists() && !module_loaded {
         return Err(io::Error::other(format!(
-            "{DEVICE} exists but {MODULE_NAME} is not loaded; refusing automatic cleanup"
+            "{} exists but {} is not loaded; refusing automatic cleanup",
+            configuration.device.display(),
+            configuration.module
         )));
     }
 
     let mut changed = false;
     if module_loaded {
-        run_command("rmmod", &[OsStr::new(MODULE_NAME)])?;
+        run_command("rmmod", &[OsStr::new(configuration.module)])?;
         changed = true;
     }
-    for overlay in OVERLAY_NAMES {
-        loop {
-            let overlays = active_overlays()?;
-            if !overlay_is_active(&overlays, overlay) {
-                break;
-            }
-            run_command("dtoverlay", &[OsStr::new("-r"), OsStr::new(overlay)])?;
-            changed = true;
+    loop {
+        let overlays = active_overlays()?;
+        if !overlay_is_active(&overlays, configuration.overlay) {
+            break;
         }
+        run_command(
+            "dtoverlay",
+            &[OsStr::new("-r"), OsStr::new(configuration.overlay)],
+        )?;
+        changed = true;
     }
     Ok(changed)
 }
 
 pub struct DriverGuard {
-    hardware_name: &'static str,
-    overlay: &'static str,
+    hardware_name: String,
+    module: String,
+    overlay: String,
     overlay_loaded: bool,
     module_loaded: bool,
 }
@@ -323,13 +366,57 @@ impl DriverGuard {
         ready_gpio: Option<u32>,
     ) -> io::Result<Self> {
         let hardware = Hardware::detect()?;
-        validate_ready_gpio(hardware, ready_gpio)?;
-        ensure_unloaded()?;
-        ensure_artifacts_current(kernel_directory, hardware)?;
-        let module = kernel_directory.join(MODULE_FILE);
+        Self::load_configured(
+            kernel_directory,
+            DriverConfiguration {
+                hardware_name: hardware.name,
+                model_contains: hardware.model_contains,
+                overlay: hardware.overlay,
+                module: MODULE_NAME,
+                device: Path::new(DEVICE),
+                target_pins: &hardware.target_pins,
+            },
+            address,
+            idle_pull,
+            ready_gpio,
+        )
+    }
+
+    pub fn load_configured(
+        kernel_directory: &Path,
+        configuration: DriverConfiguration<'_>,
+        address: u16,
+        idle_pull: IdlePull,
+        ready_gpio: Option<u32>,
+    ) -> io::Result<Self> {
+        let model = fs::read("/proc/device-tree/model")?;
+        let model = String::from_utf8_lossy(&model);
+        if !model.contains(configuration.model_contains) {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!(
+                    "profile expects {} but detected {:?}",
+                    configuration.hardware_name,
+                    model.trim_end_matches('\0')
+                ),
+            ));
+        }
+        validate_ready_gpio(
+            configuration.hardware_name,
+            configuration.target_pins,
+            ready_gpio,
+        )?;
+        ensure_unloaded(configuration)?;
+        ensure_artifacts_current(
+            kernel_directory,
+            configuration.module,
+            configuration.overlay,
+        )?;
+        let module = kernel_directory.join(format!("{}.ko", configuration.module));
         let mut guard = Self {
-            hardware_name: hardware.name,
-            overlay: hardware.overlay,
+            hardware_name: configuration.hardware_name.to_owned(),
+            module: configuration.module.to_owned(),
+            overlay: configuration.overlay.to_owned(),
             overlay_loaded: false,
             module_loaded: false,
         };
@@ -339,7 +426,7 @@ impl DriverGuard {
         let mut overlay_arguments = vec![
             OsStr::new("-d"),
             kernel_directory.as_os_str(),
-            OsStr::new(hardware.overlay),
+            OsStr::new(configuration.overlay),
             OsStr::new(&address_parameter),
             OsStr::new(idle_pull_parameter),
         ];
@@ -352,11 +439,14 @@ impl DriverGuard {
         guard.module_loaded = true;
 
         let deadline = Instant::now() + Duration::from_secs(1);
-        while !Path::new(DEVICE).exists() {
+        while !configuration.device.exists() {
             if Instant::now() >= deadline {
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
-                    format!("{DEVICE} was not created after loading the module"),
+                    format!(
+                        "{} was not created after loading the module",
+                        configuration.device.display()
+                    ),
                 ));
             }
             thread::sleep(Duration::from_millis(10));
@@ -364,17 +454,17 @@ impl DriverGuard {
         Ok(guard)
     }
 
-    pub fn hardware_name(&self) -> &'static str {
-        self.hardware_name
+    pub fn hardware_name(&self) -> &str {
+        &self.hardware_name
     }
 
     pub fn unload(&mut self) -> io::Result<()> {
         if self.module_loaded {
-            run_command("rmmod", &[OsStr::new(MODULE_NAME)])?;
+            run_command("rmmod", &[OsStr::new(&self.module)])?;
             self.module_loaded = false;
         }
         if self.overlay_loaded {
-            run_command("dtoverlay", &[OsStr::new("-r"), OsStr::new(self.overlay)])?;
+            run_command("dtoverlay", &[OsStr::new("-r"), OsStr::new(&self.overlay)])?;
             self.overlay_loaded = false;
         }
         Ok(())
@@ -410,12 +500,13 @@ mod tests {
     fn validates_gpio_numbers_and_target_pin_conflicts() {
         let hardware = Hardware {
             name: "Raspberry Pi 3",
+            model_contains: "Raspberry Pi 3 Model B",
             overlay: "bsc-target-pi3",
             target_pins: [18, 19],
         };
         assert_eq!(parse_gpio("17").unwrap(), 17);
         assert!(parse_gpio("54").is_err());
-        assert!(validate_ready_gpio(hardware, Some(17)).is_ok());
-        assert!(validate_ready_gpio(hardware, Some(18)).is_err());
+        assert!(validate_ready_gpio(hardware.name, &hardware.target_pins, Some(17)).is_ok());
+        assert!(validate_ready_gpio(hardware.name, &hardware.target_pins, Some(18)).is_err());
     }
 }
