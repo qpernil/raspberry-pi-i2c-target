@@ -15,7 +15,7 @@ Raspberry Pi OS Debian 13 targets using glibc 2.41.
 | `controller` | FIFO-sized controller for the direct userspace demonstration | `7b802cb4b414f2e32a59e4e289a197e42580d963` |
 | `controller-long` | Long-message controller for the kernel target driver | `7b802cb4b414f2e32a59e4e289a197e42580d963` |
 | `target` | Direct `/dev/mem` FIFO-sized target demonstration | `7b802cb4b414f2e32a59e4e289a197e42580d963` |
-| `target-driver` | Kernel lifecycle, device profiles, READY response mode and receive-only mode | `e907455` |
+| `target-driver` | Standalone kernel lifecycle, READY echo response and receive-only diagnostics | `f824dfba3e057df320d4514c44d3e2e908767c74` |
 | `virtual-display` | Independent SSD1306/SH1106 SDL viewer with default GPIO5/GPIO26 outputs | `7b802cb4b414f2e32a59e4e289a197e42580d963` |
 
 Verify the files before use:
