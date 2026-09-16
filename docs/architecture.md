@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `bcm27xx_bsc_target.ko` | C | MMIO, IRQ/FIFO service, timer, transaction queues, character device |
 | Pi 3/Pi 4 overlays | Device Tree | MMIO/IRQ description, model-specific pins, active and idle pinctrl policy |
-| `target-driver` | Rust | Temporary overlay/module lifecycle with echo/receive modes or a profile-supervised worker |
+| `target-driver` | Rust | Self-contained temporary overlay/module lifecycle with echo and receive-only diagnostic modes |
 | `virtual-display` | Rust | Self-contained target lifecycle, SSD1306/SH1106 parser, SDL viewer, and optional button GPIOs |
 | `controller-long` | Rust | Long-message controller through Linux `i2c-dev` |
 | `target` / `controller` | Rust | FIFO-bounded direct-MMIO demonstration protocol |
@@ -169,11 +169,13 @@ is needed for electrical behavior and GPIO/IRQ timing.
 
 ## Profile-supervised target workers
 
-`target-driver --profile NAME_OR_PATH` uses its existing driver guard while
-launching the installed `usb-gadget-supervisor`. The target launcher never
-opens `/dev/bsc-target0` in this mode; the supervisor opens it according to its
-root-owned device profile and passes the handle to the unprivileged worker.
-Stop and reload signals are forwarded, and the supervisor is reaped before
-unloading. This path introduces no device-protocol implementation or Rust
-crate dependency between the driver project and the worker. Driver loading,
-privilege dropping, and HSM behavior remain in their owning executables.
+The shared `kernel_target` library exposes both automatic Pi 3/4 selection for
+self-contained diagnostics and a configured lifecycle API for privileged
+resource supervisors. `usb-gadget-supervisor` uses the configured API: its
+root-owned profile supplies module and overlay names, supported model matches,
+target pins, address, READY GPIO, and the artifact directory. The supervisor
+loads the matching BSC target, passes `/dev/bsc-target0` to the unprivileged
+worker, and unloads the resource after closing the worker descriptor.
+
+`target-driver` does not launch profile workers. It retains its original role
+as the standalone echo/receive diagnostic that owns the same kernel lifecycle.

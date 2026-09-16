@@ -272,39 +272,19 @@ while leaving received framebuffer bytes unchanged.
 
 ### Launch an unprivileged device profile
 
-`target-driver` can load the driver for a separate device
-worker through the installed `usb-gadget-supervisor`:
+Production workers use the installed `usb-gadget-supervisor` directly. A
+root-owned `bsc-target` resource in the device profile declares the module,
+model-specific overlays, target pins, address, READY GPIO, and kernel artifact
+directory. The supervisor selects exactly one matching model variant, loads the
+overlay and module, opens `/dev/bsc-target0`, passes FD 3, and drops the worker
+to its configured account. Worker shutdown closes the device before the
+supervisor unloads the module and overlay.
 
-```sh
-cargo build --release --locked --bin target-driver
-sudo ./target/release/target-driver --profile virtual-yubihsm-i2c --ready-gpio 17 0x24 ./kernel
-```
-
-Install the supervisor at
-`/opt/usb-gadget-supervisor/usb-gadget-supervisor` and install a root-owned
-`mode = "device"` profile first. The supervisor accepts the installed profile
-name or an absolute profile path. It opens the profile's declared character
-device, passes FD 3, and drops the worker to the configured account. See the
-[Virtual YubiHSM setup](https://github.com/qpernil/virtual-yubihsm/blob/main/docs/i2c.md#manual-bench-test).
-On ARM64 targets, the checksummed `prebuilt/aarch64/target-driver` also
-supports this mode.
-
-Use `--ready-gpio` and an ABI 3 controller with READY edge acknowledgment.
-Polling-only HSM configurations are unsupported.
-
-The launcher reuses its normal overlay/module lifecycle and does not open or
-respond on the target device in profile mode. `--receive-only` is rejected with `--profile`. READY GPIO, address, kernel
-directory, and idle pull remain driver options. The supervisor executable is
-fixed; executable, account, and device permissions come from its root-owned
-profile. No profile-controlled privileged shell hook is introduced.
-
-Ctrl-C/SIGTERM requests supervisor shutdown and allows up to eight seconds
-before killing it. SIGHUP forwards a profile reload. The child is reaped before
-normal module/overlay cleanup. On Linux, unexpected launcher death sends
-SIGTERM to the supervisor, whose own parent-death protection covers its
-worker. SIGKILL can leave the module/overlay loaded; `--unload` removes them
-once the device is closed. The profile launcher can also be used as a systemd
-`ExecStart` with `KillMode=mixed`, as shown in the HSM service recipe.
+The standalone `target-driver` remains a diagnostic echo or receive-only
+responder and is not part of the profile service path. See the
+[Virtual YubiHSM setup](https://github.com/qpernil/virtual-yubihsm/blob/main/docs/i2c.md#manual-bench-test)
+for the root-owned artifact installation, profile, foreground command, and
+systemd service recipe.
 
 ### Idle pin policy
 
