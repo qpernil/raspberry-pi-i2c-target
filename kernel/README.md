@@ -81,6 +81,26 @@ This project intentionally does not distribute prebuilt kernel modules. The
 Makefile uses `/lib/modules/$(uname -r)/build`, ensuring that the module is built
 against the running target's headers. Rebuild after every kernel update.
 
+### Future DKMS integration
+
+If the driver becomes an operational dependency, package its source with DKMS.
+The distribution's kernel-package hooks would then build and install a separate
+`bcm27xx_bsc_target.ko` for every installed kernel. The supervisor would need to
+load the module by name, either by invoking `modprobe bcm27xx_bsc_target` or by
+using libkmod, instead of loading an absolute artifact path. This allows the
+module loader to select the copy under `/lib/modules/$(uname -r)` and resolve
+dependencies. Invoking `modprobe` is the simpler choice for this supervisor;
+libkmod provides an in-process API if avoiding a child process becomes useful.
+
+DKMS does not manage the runtime device-tree overlays, so their installation and
+lifecycle would remain separate. A failed DKMS build can make a package update
+report an error, but it is not a reliable veto on installing or booting the new
+kernel. Systems using this module should therefore avoid unattended reboots and
+verify that DKMS installed the module for the new kernel before rebooting.
+
+This integration is deferred while the driver remains experimental; the manual
+per-kernel build above is the supported workflow.
+
 Do not copy either overlay into the boot configuration. Run the responder as
 root; it detects Pi 3 versus Pi 4, applies the matching runtime overlay, loads
 the module, and opens the character device:
