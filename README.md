@@ -157,6 +157,10 @@ The loader defaults to `kernel/`, prints the selected directory, and refuses to
 load missing artifacts or outputs older than their source. An explicit artifact
 directory remains available for advanced use.
 
+Automating the per-kernel rebuild with DKMS is a possible future improvement.
+The current experimental workflow intentionally keeps the build and installation
+explicit; see [the kernel driver documentation](kernel/README.md#future-dkms-integration).
+
 ## Run the kernel target
 
 Start the target first. Use the checked-in Rust executable on Raspberry Pi OS:
