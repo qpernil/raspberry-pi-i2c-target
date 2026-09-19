@@ -85,12 +85,42 @@ against the running target's headers. Rebuild after every kernel update.
 
 If the driver becomes an operational dependency, package its source with DKMS.
 The distribution's kernel-package hooks would then build and install a separate
-`bcm27xx_bsc_target.ko` for every installed kernel. The supervisor would need to
-load the module by name, either by invoking `modprobe bcm27xx_bsc_target` or by
-using libkmod, instead of loading an absolute artifact path. This allows the
-module loader to select the copy under `/lib/modules/$(uname -r)` and resolve
+`bcm27xx_bsc_target.ko` for every installed kernel. The supervisor must stop
+loading an absolute artifact path. It can load the module by name, either by
+invoking `modprobe bcm27xx_bsc_target` or by using libkmod, allowing the module
+loader to select the copy under `/lib/modules/$(uname -r)` and resolve
 dependencies. Invoking `modprobe` is the simpler choice for this supervisor;
 libkmod provides an in-process API if avoiding a child process becomes useful.
+
+The existing overlay node declares
+`compatible = "brcm,bcm27xx-bsc-target"`, and the driver exports the matching
+Device Tree table with `MODULE_DEVICE_TABLE`. After DKMS installs the module and
+`depmod` indexes it, applying the overlay creates a platform device whose
+modalias event allows udev to load the module automatically. A future supervisor
+could therefore apply the overlay and wait for `/dev/bsc-target0`. Explicit
+`modprobe` remains useful when the supervisor needs an immediate, synchronous
+load error. Removing the overlay does not automatically unload the module; the
+supervisor must either leave the inactive module loaded or remove it explicitly.
+Loading and probing the module only initializes its high-resolution timer. The
+driver starts the timer when a worker opens `/dev/bsc-target0` and cancels it when
+that file is closed, so an inactive loaded module causes no periodic polling.
+
+The recommended future lifecycle is therefore:
+
+1. The supervisor applies the model-specific overlay and lets udev autoload the
+   installed module.
+2. It waits for `/dev/bsc-target0`, opens it, and passes the descriptor to the
+   worker. Opening the device activates the hardware and timer.
+3. Worker shutdown closes the descriptor, which stops the timer and returns the
+   hardware and pins to their configured idle state.
+4. The supervisor leaves both the overlay and inactive module registered during
+   normal service restarts. The next worker can reopen the existing device
+   immediately.
+
+Remove the overlay when deconfiguring the resource, changing its address, READY
+GPIO, or other overlay parameters, or releasing its pins for another function.
+Explicit module removal remains useful for driver replacement and diagnostics;
+neither removal is required during normal service restarts on a dedicated target.
 
 DKMS does not manage the runtime device-tree overlays, so their installation and
 lifecycle would remain separate. A failed DKMS build can make a package update
