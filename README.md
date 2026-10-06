@@ -1,5 +1,7 @@
 # Raspberry Pi I²C target
 
+The Rust tools require Rust 1.95 or newer. CI checks that minimum alongside stable Rust.
+
 [![CI](https://github.com/qpernil/raspberry-pi-i2c-target/actions/workflows/ci.yml/badge.svg)](https://github.com/qpernil/raspberry-pi-i2c-target/actions/workflows/ci.yml)
 
 An interrupt-driven Linux I²C target driver and crate-dependency-free Rust tools for
