@@ -133,7 +133,9 @@ git pull --ff-only
 
 The Rust programs have no Cargo dependencies. Raspberry Pi OS ARM64 users can
 use the checked-in executables under `prebuilt/aarch64/`; they are built from a
-clean Git checkout on Raspberry Pi OS. Verify them with:
+clean Git checkout on Ubuntu ARM64. The [build provenance](prebuilt/aarch64/README.md)
+records source revisions, toolchains and Raspberry Pi runtime compatibility.
+Verify them with:
 
 ```sh
 (cd prebuilt/aarch64 && sha256sum -c SHA256SUMS)
