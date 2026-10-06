@@ -1,29 +1,28 @@
 # ARM64 Rust executables
 
-These are convenience builds of the five crate-dependency-free Rust programs. They
-contain no kernel module or Device Tree overlay.
+These are release builds of the five crate-dependency-free Rust programs.
+They contain no kernel module or Device Tree overlay. All five were built from
+clean source commit `925d083e4969d4f19acf79fc3cdb13fda4cab512` on `ubuntu4`,
+Ubuntu 26.04.1 LTS ARM64, with Rust/Cargo 1.98.1 and glibc 2.43.
 
-They were built from the clean source commits listed below on
-`ubuntu4` running Ubuntu 26.04.1 LTS (ARM64), using Rust/Cargo 1.98.1 and
-glibc 2.43. ELF version inspection shows that `controller`, `controller-long`,
-and `target` require at most `GLIBC_2.34`; `target-driver` and
-`virtual-display` require at most `GLIBC_2.39`. This is compatible with the
-Raspberry Pi OS Debian 13 targets using glibc 2.41.
-
-| File | Purpose | Source commit |
+| File | Purpose | Maximum required glibc |
 | --- | --- | --- |
-| `controller` | FIFO-sized controller for the direct userspace demonstration | `7b802cb4b414f2e32a59e4e289a197e42580d963` |
-| `controller-long` | Long-message controller for the kernel target driver | `7b802cb4b414f2e32a59e4e289a197e42580d963` |
-| `target` | Direct `/dev/mem` FIFO-sized target demonstration | `7b802cb4b414f2e32a59e4e289a197e42580d963` |
-| `target-driver` | Standalone kernel lifecycle, READY echo response and receive-only diagnostics | `f824dfba3e057df320d4514c44d3e2e908767c74` |
-| `virtual-display` | Independent SSD1306/SH1106 SDL viewer with default GPIO5/GPIO26 outputs | `7b802cb4b414f2e32a59e4e289a197e42580d963` |
+| `controller` | FIFO-sized controller for the direct userspace demonstration | `GLIBC_2.34` |
+| `controller-long` | Long-message controller for the kernel target driver | `GLIBC_2.34` |
+| `target` | Direct `/dev/mem` FIFO-sized target demonstration | `GLIBC_2.34` |
+| `target-driver` | Kernel lifecycle, READY echo and receive-only diagnostics | `GLIBC_2.39` |
+| `virtual-display` | SSD1306/SH1106 SDL viewer with default GPIO5/GPIO26 outputs | `GLIBC_2.39` |
 
-Verify the files before use:
+The executables are compatible with Raspberry Pi OS Debian 13 using glibc 2.41.
+Verify them before use:
 
 ```sh
 (cd prebuilt/aarch64 && sha256sum -c SHA256SUMS)
 ```
 
-GitHub `main` remains the source of truth. Ubuntu machines should normally build
-the Rust programs locally with `cargo build --release --locked`. Every target
-machine must build the C kernel module locally with `make -C kernel`.
+On a capable ARM64 machine, rebuild with `cargo build --release --locked --bins`.
+Build the C kernel module locally on each target with `make -C kernel`; kernel
+modules and overlays are not distributed as prebuilts. Build Rust artifacts on
+Ubuntu4 rather than the memory-constrained Raspberry Pi 1 and 2 lab hosts,
+then publish the binaries, checksums and provenance through the canonical Git
+repository and deploy through Git.
