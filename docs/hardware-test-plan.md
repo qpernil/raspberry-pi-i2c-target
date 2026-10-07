@@ -8,7 +8,7 @@ target with required active-low READY signaling.
 
 ## Verified behavior
 
-On build-host with the Pi 3B targets `i2c-target-1` and `i2c-target-2`
+On build-host with the Pi 3B+ targets `i2c-target-1` and `i2c-target-2`
 (1 GiB RAM each), driver ABI 3 passes 1,000 concurrent
 randomized exchanges per target, with delayed header/body reads and every tenth
 response deliberately left one byte short. The run includes bounded four-core
