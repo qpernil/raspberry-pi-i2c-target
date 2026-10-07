@@ -6,7 +6,8 @@ target with required active-low READY signaling.
 
 ## Verified behavior
 
-On ubuntu4 with two Pi 3B+ targets, driver ABI 3 passes 1,000 concurrent
+On ubuntu4 with the Pi 3B targets `raspberrypi-1` and `raspberrypi-2`
+(1 GiB RAM each), driver ABI 3 passes 1,000 concurrent
 randomized exchanges per target, with delayed header/body reads and every tenth
 response deliberately left one byte short. The run includes bounded four-core
 load; neither target reports hardware overruns or underruns.
