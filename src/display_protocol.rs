@@ -10,6 +10,7 @@ const SSD1306_INIT: &[u8] = &[
     0x00, 0xae, 0xd5, 0x80, 0xa8, 0x3f, 0xd3, 0x00, 0x40, 0x8d, 0x14, 0x20, 0x00, 0xa1, 0xc8, 0xda,
     0x12, 0x81, 0xcf, 0xd9, 0xf1, 0xdb, 0x40, 0xa4, 0xa6, 0xaf,
 ];
+#[cfg(test)]
 const SSD1306_ADDRESS: &[u8] = &[0x00, 0x21, 0x00, 0x7f, 0x22, 0x00, 0x07];
 const SH1106_INIT: &[u8] = &[
     0x00, 0xae, 0x02, 0x10, 0x40, 0x81, 0xa0, 0xa1, 0xc8, 0xa6, 0xa8, 0x3f, 0xd3, 0x00, 0xd5, 0x80,
@@ -57,8 +58,17 @@ pub struct ParseUpdate {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ParseState {
     Scan,
-    Ssd1306Data,
-    Sh1106PageData(u8),
+    Ssd1306Data {
+        x: usize,
+        width: usize,
+        page: usize,
+        pages: usize,
+    },
+    Sh1106PageData {
+        page: u8,
+        x: usize,
+        width: usize,
+    },
 }
 
 pub struct DisplayParser {
@@ -95,8 +105,15 @@ impl DisplayParser {
         loop {
             let progressed = match self.state {
                 ParseState::Scan => self.scan(&mut update),
-                ParseState::Ssd1306Data => self.read_ssd1306_data(&mut update),
-                ParseState::Sh1106PageData(page) => self.read_sh1106_page_data(page, &mut update),
+                ParseState::Ssd1306Data {
+                    x,
+                    width,
+                    page,
+                    pages,
+                } => self.read_ssd1306_data(x, width, page, pages, &mut update),
+                ParseState::Sh1106PageData { page, x, width } => {
+                    self.read_sh1106_page_data(page, x, width, &mut update)
+                }
             };
             if update.completed_frames > 0 || update.partial_frame_boundary {
                 break;
@@ -114,12 +131,32 @@ impl DisplayParser {
                 if self.consume_pattern(SSD1306_INIT) {
                     return true;
                 }
-                if self.consume_pattern(SSD1306_ADDRESS) {
-                    self.state = ParseState::Ssd1306Data;
-                    return true;
+                if self.pending.starts_with(&[0x00, 0x21]) {
+                    if self.pending.len() < 7 {
+                        return false;
+                    }
+                    let x = self.pending[2] as usize;
+                    let end_x = self.pending[3] as usize;
+                    let page = self.pending[5] as usize;
+                    let end_page = self.pending[6] as usize;
+                    if self.pending[4] == 0x22
+                        && x <= end_x
+                        && end_x < DISPLAY_WIDTH
+                        && page <= end_page
+                        && end_page < DISPLAY_HEIGHT / 8
+                    {
+                        self.pending.drain(..7);
+                        self.state = ParseState::Ssd1306Data {
+                            x,
+                            width: end_x - x + 1,
+                            page,
+                            pages: end_page - page + 1,
+                        };
+                        return true;
+                    }
                 }
                 if SSD1306_INIT.starts_with(&self.pending)
-                    || SSD1306_ADDRESS.starts_with(&self.pending)
+                    || [0x00, 0x21].starts_with(&self.pending)
                 {
                     return false;
                 }
@@ -128,34 +165,61 @@ impl DisplayParser {
                 if self.consume_pattern(SH1106_INIT) || self.consume_pattern(SH1106_DISPLAY_ON) {
                     return true;
                 }
-                for page in 0_u8..8 {
-                    let command = [0x00, 0xb0 | page, 0x02, 0x10];
-                    if self.pending.starts_with(&command)
-                        && self.sh1106_pages != 0
-                        && self
-                            .sh1106_last_page_command
-                            .is_some_and(|previous| page < previous)
-                    {
-                        self.sh1106_pages = 0;
-                        self.sh1106_frame_started = false;
-                        self.sh1106_last_page_command = None;
-                        update.partial_frame_boundary = true;
+                if self.pending.starts_with(&[0x00]) {
+                    if self.pending.len() < 2 {
                         return false;
                     }
-                    if self.consume_pattern(&command) {
-                        if page == 0 {
+                    let page_command = self.pending[1];
+                    if (0xb0..=0xb7).contains(&page_command) {
+                        let page = page_command & 7;
+                        if self.pending.len() >= 4
+                            && decode_column(self.pending[2], self.pending[3]).is_some()
+                            && self
+                                .sh1106_last_page_command
+                                .is_some_and(|previous| page < previous)
+                        {
                             self.sh1106_pages = 0;
-                            self.sh1106_frame_started = true;
+                            self.sh1106_frame_started = false;
+                            self.sh1106_last_page_command = None;
+                            update.partial_frame_boundary = true;
+                            return false;
                         }
-                        self.sh1106_last_page_command = Some(page);
-                        self.state = ParseState::Sh1106PageData(page);
-                        return true;
+                        if self.pending.len() < 5 {
+                            return false;
+                        }
+                        let end_column = decode_column(self.pending[2], self.pending[3]);
+                        let range = if self.pending[4] == 0x40 {
+                            // Legacy streams are unambiguous only for complete visible pages.
+                            end_column
+                                .filter(|&column| column == 2)
+                                .map(|_| (4, 0, DISPLAY_WIDTH))
+                        } else {
+                            if self.pending.len() < 6 {
+                                return false;
+                            }
+                            let start_column = decode_column(self.pending[4], self.pending[5]);
+                            end_column.zip(start_column).and_then(|(end, start)| {
+                                if start >= 2 && start <= end && end < DISPLAY_WIDTH + 2 {
+                                    Some((6, start - 2, end - start + 1))
+                                } else {
+                                    None
+                                }
+                            })
+                        };
+                        if let Some((command_size, x, width)) = range {
+                            self.pending.drain(..command_size);
+                            if page == 0 {
+                                self.sh1106_pages = 0;
+                                self.sh1106_frame_started = true;
+                            }
+                            self.sh1106_last_page_command = Some(page);
+                            self.state = ParseState::Sh1106PageData { page, x, width };
+                            return true;
+                        }
                     }
                 }
                 if SH1106_INIT.starts_with(&self.pending)
                     || SH1106_DISPLAY_ON.starts_with(&self.pending)
-                    || (0_u8..8)
-                        .any(|page| [0x00, 0xb0 | page, 0x02, 0x10].starts_with(&self.pending))
                 {
                     return false;
                 }
@@ -178,40 +242,68 @@ impl DisplayParser {
         true
     }
 
-    fn read_ssd1306_data(&mut self, update: &mut ParseUpdate) -> bool {
-        const MESSAGE_SIZE: usize = FRAMEBUFFER_SIZE + 1;
-        if self.pending.len() < MESSAGE_SIZE {
+    fn read_ssd1306_data(
+        &mut self,
+        x: usize,
+        width: usize,
+        page: usize,
+        pages: usize,
+        update: &mut ParseUpdate,
+    ) -> bool {
+        let message_size = width * pages + 1;
+        if self.pending.is_empty() {
             return false;
         }
         if self.pending[0] != 0x40 {
             self.state = ParseState::Scan;
             return true;
         }
-        self.framebuffer
-            .copy_from_slice(&self.pending[1..MESSAGE_SIZE]);
+        if self.pending.len() < message_size {
+            return false;
+        }
+        for offset in 0..pages {
+            let target = (page + offset) * DISPLAY_WIDTH + x;
+            let source = 1 + offset * width;
+            self.framebuffer[target..target + width]
+                .copy_from_slice(&self.pending[source..source + width]);
+        }
         update.display_updates += 1;
-        self.pending.drain(..MESSAGE_SIZE);
+        self.pending.drain(..message_size);
         self.state = ParseState::Scan;
-        update.completed_frames += 1;
+        if x == 0 && width == DISPLAY_WIDTH && page == 0 && pages == DISPLAY_HEIGHT / 8 {
+            update.completed_frames += 1;
+        } else {
+            update.partial_frame_boundary = true;
+        }
         true
     }
 
-    fn read_sh1106_page_data(&mut self, page: u8, update: &mut ParseUpdate) -> bool {
-        const MESSAGE_SIZE: usize = DISPLAY_WIDTH + 1;
-        if self.pending.len() < MESSAGE_SIZE {
+    fn read_sh1106_page_data(
+        &mut self,
+        page: u8,
+        x: usize,
+        width: usize,
+        update: &mut ParseUpdate,
+    ) -> bool {
+        let message_size = width + 1;
+        if self.pending.is_empty() {
             return false;
         }
         if self.pending[0] != 0x40 {
             self.state = ParseState::Scan;
             return true;
         }
-        let start = page as usize * DISPLAY_WIDTH;
-        self.framebuffer[start..start + DISPLAY_WIDTH]
-            .copy_from_slice(&self.pending[1..MESSAGE_SIZE]);
+        if self.pending.len() < message_size {
+            return false;
+        }
+        let start = page as usize * DISPLAY_WIDTH + x;
+        self.framebuffer[start..start + width].copy_from_slice(&self.pending[1..message_size]);
         update.display_updates += 1;
-        self.pending.drain(..MESSAGE_SIZE);
+        self.pending.drain(..message_size);
         self.state = ParseState::Scan;
-        self.sh1106_pages |= 1 << page;
+        if x == 0 && width == DISPLAY_WIDTH {
+            self.sh1106_pages |= 1 << page;
+        }
         if page == 7 {
             if self.sh1106_frame_started && self.sh1106_pages == 0xff {
                 update.completed_frames += 1;
@@ -224,6 +316,11 @@ impl DisplayParser {
         }
         true
     }
+}
+
+fn decode_column(low: u8, high: u8) -> Option<usize> {
+    (low <= 0x0f && (0x10..=0x1f).contains(&high))
+        .then_some(((high as usize & 0x0f) << 4) | low as usize)
 }
 
 #[cfg(test)]
@@ -396,5 +493,84 @@ mod tests {
 
         let update = parser.push(&[]);
         assert_eq!(update, ParseUpdate::default());
+    }
+
+    #[test]
+    fn ssd1306_partial_rectangle_preserves_other_pixels() {
+        let mut parser = DisplayParser::new(DisplayController::Ssd1306);
+        let expected = framebuffer();
+        let mut full = SSD1306_ADDRESS.to_vec();
+        full.push(0x40);
+        full.extend_from_slice(&expected);
+        assert_eq!(parser.push(&full).completed_frames, 1);
+        let mut expected = expected;
+        expected[128 + 127] = 0x40;
+        expected[256 + 127] = 0x00;
+        let update = feed_fragmented(
+            &mut parser,
+            &[0x00, 0x21, 127, 127, 0x22, 1, 2, 0x40, 0x40, 0x00],
+        );
+        assert_eq!(update.completed_frames, 0);
+        assert!(update.partial_frame_boundary);
+        assert_eq!(update.display_updates, 1);
+        assert_eq!(update.discarded_bytes, 0);
+        assert_eq!(parser.framebuffer(), &expected);
+    }
+
+    #[test]
+    fn sh1106_length_hint_preserves_other_columns() {
+        let mut parser = DisplayParser::new(DisplayController::Sh1106);
+        // Page 3, ending and starting native column 12 (visible x=10), one pixel byte.
+        let update = feed_fragmented(
+            &mut parser,
+            &[0x00, 0xb3, 0x0c, 0x10, 0x0c, 0x10, 0x40, 0xb0],
+        );
+        assert_eq!(update.display_updates, 1);
+        assert_eq!(update.completed_frames, 0);
+        let mut expected = [0; FRAMEBUFFER_SIZE];
+        expected[3 * 128 + 10] = 0xb0;
+        assert_eq!(parser.framebuffer(), &expected);
+    }
+
+    #[test]
+    fn invalid_rectangles_resynchronize_without_indexing_outside_ram() {
+        for (controller, invalid) in [
+            (
+                DisplayController::Ssd1306,
+                vec![0x00, 0x21, 128, 128, 0x22, 0, 0],
+            ),
+            (
+                DisplayController::Ssd1306,
+                vec![0x00, 0x21, 127, 0, 0x22, 0, 0],
+            ),
+            (
+                DisplayController::Ssd1306,
+                vec![0x00, 0x21, 0, 127, 0x22, 8, 8],
+            ),
+            (
+                DisplayController::Sh1106,
+                vec![0x00, 0xb0, 0x01, 0x18, 0x02, 0x18],
+            ),
+            (
+                DisplayController::Sh1106,
+                vec![0x00, 0xb0, 0x00, 0x10, 0x00, 0x10],
+            ),
+            (
+                DisplayController::Sh1106,
+                vec![0x00, 0xb0, 0x02, 0x19, 0x02, 0x10],
+            ),
+        ] {
+            let valid = match controller {
+                DisplayController::Ssd1306 => vec![0x00, 0x21, 0, 0, 0x22, 0, 0, 0x40, 0x5a],
+                DisplayController::Sh1106 => vec![0x00, 0xb0, 0x02, 0x10, 0x02, 0x10, 0x40, 0x5a],
+            };
+            let mut parser = DisplayParser::new(controller);
+            let mut stream = invalid;
+            stream.extend(valid);
+            let update = parser.push(&stream);
+            assert_eq!(update.display_updates, 1);
+            assert!(update.discarded_bytes > 0);
+            assert_eq!(parser.framebuffer()[0], 0x5a);
+        }
     }
 }
