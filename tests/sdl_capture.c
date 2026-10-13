@@ -4,6 +4,8 @@
  * SDL_VIDEODRIVER=dummy VIRTUAL_DISPLAY_CAPTURE=/tmp/display-frame.bin \
  * LD_PRELOAD=/tmp/display-capture.so sudo ... (pass environment explicitly).
  * Captures canonical 128x64 page bytes after actual SDL pixel conversion.
+ * GPU readback synchronizes rendering and can perturb real I2C FIFO servicing.
+ * Use for isolated pixel diagnostics, not the baseline hardware transfer test.
  */
 #define _GNU_SOURCE
 #include <SDL2/SDL.h>

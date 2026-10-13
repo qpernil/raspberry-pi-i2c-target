@@ -30,13 +30,33 @@ command execution and verifies one-byte pixel changes remain one-byte payloads.
 Linux tests run the actual SDL render path with `SDL_VIDEODRIVER=dummy`, including
 bounded rendering under continuous partial updates. The C driver model checks
 ordered receive-only backlog retention and merged writes without READY resets.
-On ARM64 Linux, the actual SDL renderer's pixel readback matches the expected
-1,024-byte framebuffer for the continuous-partial-update regression. Target
-startup also passes on the lab Pi 4 (`raspberrypi-3`) after releasing unused
-SPI0 pin ownership; SPI0 is restored after the test. This target has no I2C
-wiring or physical display, so the real-bus pixel qualification remains unrun.
-No physical OLED was used to verify the native-column command sequence;
-its register behavior is covered by the SH1106 command model. Electrical margin and unbounded interrupt
+On ARM64 Linux, isolated SDL pixel readback matches the expected 1,024-byte
+framebuffer for the continuous-partial-update regression. On the real bus,
+Ubuntu4 drives the Pi 3B+ target `raspberrypi-2` at address `0x3c`. Its ordinary
+graphical viewer passes both labelled controller runs:
+
+| Controller | Application updates | Sent/received bytes | Decoded updates | Overruns/drops/discarded bytes |
+| --- | --- | --- | --- | --- |
+| SH1106 | 201 | 2,708 | 208 (eight initial pages plus 200 partial writes) | 0 / 0 / 0 |
+| SSD1306 | 201 | 2,858 | 201 | 0 / 0 / 0 |
+
+Five consecutive runs of each controller also pass with the ordinary viewer:
+SH1106 receives all 13,540 bytes and decodes 1,040 updates; SSD1306 receives all
+14,290 bytes and decodes 1,005 updates. Both record zero overruns, drops, or
+parser-discarded bytes. These are finite transport checks, not an exhaustive
+proof of every rendered pixel or of unbounded IRQ latency.
+
+The last 200 updates in each run contain one pixel byte. The labelled picture is
+visually confirmed, and its identical saved 1,024-byte framebuffer is also
+displayed through Ubuntu3's ST7789 SPI backend, aspect-fitted and centred.
+This compares framebuffer layout and orientation; it does not qualify native
+SH1106 hardware's I2C command interpretation.
+
+These real-bus runs use the ordinary viewer without GPU readback
+instrumentation. Synchronous GPU readback changes the workload and can cause
+FIFO overruns on this non-clock-stretching target; use it only for isolated
+pixel diagnostics. HSM and Virtual YubiKey services are restored after the
+display tests. Electrical margin and unbounded interrupt
 latency remain outside the finite lab qualification.
 
 ## Equipment
@@ -93,24 +113,37 @@ framebuffer traffic repeatedly. Adjacent electrical writes may be merged into
 one character-device record, so the consumer must parse a byte stream rather
 than assume one `read()` per controller `write()`.
 
-## Byte-exact virtual display qualification
+## Virtual display qualification
 
-Use `virtual-display --no-button-outputs` at `0x3c` on a quiescent target;
-no READY wire is required. Build `tests/sdl_capture.c` as a shared library with
-SDL2 and `-ldl`. Set `SDL_VIDEODRIVER=dummy`, `LD_PRELOAD` to that shim, and
-`VIRTUAL_DISPLAY_CAPTURE` to a temporary output file when launching the viewer.
-This runs the actual SDL renderer headlessly and records its final pixels back
-into the canonical 1,024-byte framebuffer format.
+For a visible real-bus check, use a connected Pi 3B/3B+ or Pi 4B target at
+`0x3c`. Run `virtual-display --no-button-outputs` from its graphical login;
+no READY wire is required. If an I2C HSM service owns the BSC target, stop that
+service for the display test and restore it afterward. Only one target on the
+shared bus may use the display address at a time.
 
 On the controller, run `display-backends`' ignored
 `physical_i2c_display_updates` test with the qualification feature, explicitly
 setting `DISPLAY_TEST_BUS`, `DISPLAY_TEST_CONTROLLER`, and
-`DISPLAY_TEST_EXPECTED`. Compare the expected file with the captured target
-frame after the viewer's 75 ms presentation deadline. Test both SSD1306 and
-SH1106. Require all 201 updates, zero discarded bytes, and no receive
-overrun/drop increase. The last 200 updates must retain one-byte pixel payloads.
-Stop the viewer normally and confirm its module/overlay and device descriptor
-are released. The shim is test-only and is not installed into production.
+`DISPLAY_TEST_EXPECTED`. Test both SSD1306 and SH1106. Require all 201
+application updates, matching sent/received byte counts, zero parser-discarded
+bytes, and no receive overrun/drop increase. The last 200 updates retain
+one-byte pixel payloads. The expected picture is a border, `I2C TEST` heading,
+checkerboard, cross, controller label, and four final dotted footer markers.
+Stop the viewer normally and confirm its module/overlay and descriptor are
+released before restoring the HSM service.
+
+The saved native framebuffer can also be sent to a physical SPI display using
+`display_backends_write_frame` with `Mono1MsbReversePage`, width 128, height 64,
+and stride 128. ST7789 aspect-fits and centres it. Pause any worker owning
+that display and restore it after the comparison.
+
+`tests/sdl_capture.c` is an optional GPU-readback diagnostic. Build it as a
+shared library with SDL2 and `-ldl`; use `SDL_VIDEODRIVER=dummy`, `LD_PRELOAD`,
+and `VIRTUAL_DISPLAY_CAPTURE` with the isolated SDL render regression to
+compare converted pixels with its known framebuffer. Keep this shim disabled
+during the baseline real-bus test: its synchronous GPU reads add work absent
+from the ordinary viewer and can perturb FIFO servicing. It is test-only and
+is not installed into production.
 
 ## Shared-bus concurrency
 
