@@ -30,7 +30,13 @@ command execution and verifies one-byte pixel changes remain one-byte payloads.
 Linux tests run the actual SDL render path with `SDL_VIDEODRIVER=dummy`, including
 bounded rendering under continuous partial updates. The C driver model checks
 ordered receive-only backlog retention and merged writes without READY resets.
-Display hardware qualification is separate from these software checks. Electrical margin and unbounded interrupt
+On ARM64 Linux, the actual SDL renderer's pixel readback matches the expected
+1,024-byte framebuffer for the continuous-partial-update regression. Target
+startup also passes on the lab Pi 4 (`raspberrypi-3`) after releasing unused
+SPI0 pin ownership; SPI0 is restored after the test. This target has no I2C
+wiring or physical display, so the real-bus pixel qualification remains unrun.
+No physical OLED was used to verify the native-column command sequence;
+its register behavior is covered by the SH1106 command model. Electrical margin and unbounded interrupt
 latency remain outside the finite lab qualification.
 
 ## Equipment
