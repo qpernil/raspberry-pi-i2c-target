@@ -23,8 +23,14 @@ for the response. This avoids the deferred both-edge handler classifying an
 interrupt using a pin level that has already changed again. No post-read
 completion inference, fallback stream, guard byte or drain delay is used.
 
-The receive-only display parser and launcher tests pass; display hardware has
-not been rerun with this revision. Electrical margin and unbounded interrupt
+The receive-only display parser and launcher tests cover partial updates,
+merged records, and arbitrary read splits. Producer/consumer qualification in
+`display-backends` also checks exact pixel equivalence with native SH1106
+command execution and verifies one-byte pixel changes remain one-byte payloads.
+Linux tests run the actual SDL render path with `SDL_VIDEODRIVER=dummy`, including
+bounded rendering under continuous partial updates. The C driver model checks
+ordered receive-only backlog retention and merged writes without READY resets.
+Display hardware qualification is separate from these software checks. Electrical margin and unbounded interrupt
 latency remain outside the finite lab qualification.
 
 ## Equipment
@@ -80,6 +86,25 @@ For receive-only qualification, send SSD1306 or SH1106 initialization and
 framebuffer traffic repeatedly. Adjacent electrical writes may be merged into
 one character-device record, so the consumer must parse a byte stream rather
 than assume one `read()` per controller `write()`.
+
+## Byte-exact virtual display qualification
+
+Use `virtual-display --no-button-outputs` at `0x3c` on a quiescent target;
+no READY wire is required. Build `tests/sdl_capture.c` as a shared library with
+SDL2 and `-ldl`. Set `SDL_VIDEODRIVER=dummy`, `LD_PRELOAD` to that shim, and
+`VIRTUAL_DISPLAY_CAPTURE` to a temporary output file when launching the viewer.
+This runs the actual SDL renderer headlessly and records its final pixels back
+into the canonical 1,024-byte framebuffer format.
+
+On the controller, run `display-backends`' ignored
+`physical_i2c_display_updates` test with the qualification feature, explicitly
+setting `DISPLAY_TEST_BUS`, `DISPLAY_TEST_CONTROLLER`, and
+`DISPLAY_TEST_EXPECTED`. Compare the expected file with the captured target
+frame after the viewer's 75 ms presentation deadline. Test both SSD1306 and
+SH1106. Require all 201 updates, zero discarded bytes, and no receive
+overrun/drop increase. The last 200 updates must retain one-byte pixel payloads.
+Stop the viewer normally and confirm its module/overlay and device descriptor
+are released. The shim is test-only and is not installed into production.
 
 ## Shared-bus concurrency
 

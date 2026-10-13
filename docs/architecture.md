@@ -89,11 +89,17 @@ appropriate mode for write-only protocols such as an SSD1306 display stream.
 device read-only, and interprets the byte stream in userspace. It defaults to
 SH1106; `--display=ssd1306` selects the other supported controller. It has no
 runtime dependency on `target-driver`. The parser recognizes
-controller initialization, address/page commands, and fixed-size data payloads
-across arbitrary `read()` boundaries and owns the sole 1,024-byte display RAM. SDL
+controller initialization and address/page commands across arbitrary `read()`
+boundaries. SSD1306 payload length follows its declared column/page rectangle.
+SH1106 range updates use native ending-column then starting-column commands to
+declare the exact small payload length; physical displays execute those same
+commands and finish at the starting column. Legacy full-width page writes are
+also supported. Unframed variable-length SH1106 data is ambiguous after record
+aggregation. The parser and owns the sole 1,024-byte display RAM. SDL
 expands that RAM into a streaming ARGB texture. SH1106 presentation occurs on
 page 7, a lower-page wrap, or a 75 ms incomplete-frame timeout; SSD1306 presents
-after its complete framebuffer payload. Rendering is lossless and remains in
+after each complete rectangle payload. Partial SH1106 frames render within
+75 ms of the first pending update even when further updates keep arriving. Rendering is lossless and remains in
 the drain loop. Optional `--vsync` may therefore create receive-queue pressure;
 the 1,024-record kernel ring absorbs finite lag and its documented newest-wins
 overflow policy handles longer delays.

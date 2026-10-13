@@ -138,6 +138,30 @@ int main(void) {
     take_request(&bsc, 7);
     assert(bsc_publish_response_locked(&bsc, abc, 3) == 3);
     assert(clock_byte(&bsc) == 0xa1 && clock_byte(&bsc) == 0xb2 && clock_byte(&bsc) == 0xc3);
+
+    /* Display receive-only mode has no READY and must preserve a backlog,
+     * including records containing merged writes. The actual driver functions
+     * are used here; no alternate display queue implementation is modeled. */
+    memset(&bsc, 0, sizeof(bsc)); bsc.rx_slots = slots;
+    resets = acks = 0; bus_locked = false;
+    for (unsigned i = 0; i < BSC_RX_SLOTS + 1; i++) {
+        input[0] = i & 255; input[1] = 0x40; input_len = 2; input_pos = 0;
+        rx_busy = true; bsc_service_locked(&bsc);
+        assert(bsc.rx_work_len == 2);
+        input[0] = 0xb0; input_len = 1; input_pos = 0;
+        bsc_service_locked(&bsc); /* Second write merged before idle observation. */
+        assert(bsc.rx_work_len == 3);
+        rx_busy = false; bsc_service_locked(&bsc);
+    }
+    assert(!resets && !acks);
+    assert(bsc.rx_count == BSC_RX_SLOTS && bsc.stats.rx_dropped == 1);
+    assert(bsc.stats.rx_bytes == (BSC_RX_SLOTS + 1) * 3);
+    for (unsigned i = 1; i <= BSC_RX_SLOTS; i++) {
+        const struct bsc_rx_slot *slot = &slots[(bsc.rx_head + i - 1) % BSC_RX_SLOTS];
+        assert(slot->len == 3 && slot->data[0] == (i & 255));
+        assert(slot->data[1] == 0x40 && slot->data[2] == 0xb0);
+    }
+    puts("PASS: receive-only displays retain ordered merged records without READY resets");
     puts("PASS: staged exact reads have no guard, retirement, or reset");
     puts("PASS: next requests clear abandoned data and discard superseded worker results");
 }

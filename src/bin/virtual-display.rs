@@ -292,13 +292,14 @@ impl DisplayRuntime {
                 self.visual_renders += 1;
                 self.partial_frame_deadline = None;
             } else if changed {
-                self.partial_frame_deadline = Some(Instant::now() + PARTIAL_FRAME_TIMEOUT);
+                self.partial_frame_deadline
+                    .get_or_insert(Instant::now() + PARTIAL_FRAME_TIMEOUT);
             }
             if !present {
                 break;
             }
         }
-        self.poll_input()
+        self.poll_idle()
     }
 
     fn poll_idle(&mut self) -> io::Result<()> {
@@ -536,5 +537,28 @@ mod tests {
         .err()
         .unwrap();
         assert!(error.to_string().contains("usage: virtual-display"));
+    }
+
+    // Run Linux tests with SDL_VIDEODRIVER=dummy; this exercises the actual SDL
+    // render path without borrowing a graphical login or opening hardware.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn continuous_partial_updates_have_a_bounded_render_deadline() {
+        let mut runtime =
+            DisplayRuntime::start(DisplayController::Sh1106, "qualification", None, false).unwrap();
+        let first = [0x00, 0xb0, 0x02, 0x10, 0x02, 0x10, 0x40, 0x55];
+        runtime.push(&first).unwrap();
+        let deadline = runtime.partial_frame_deadline.unwrap();
+        let second = [0x00, 0xb0, 0x02, 0x10, 0x02, 0x10, 0x40, 0xaa];
+        runtime.push(&second).unwrap();
+        assert_eq!(runtime.partial_frame_deadline, Some(deadline));
+        runtime.partial_frame_deadline = Some(Instant::now() - Duration::from_millis(1));
+        // Rendering must happen even while requests keep arriving, rather than
+        // depending on WouldBlock or on a quiet interval after the final write.
+        runtime.push(&first).unwrap();
+        assert_eq!(runtime.visual_renders, 1);
+        assert_eq!(runtime.timeout_renders, 1);
+        assert!(runtime.partial_frame_deadline.is_none());
+        assert_eq!(runtime.parser.framebuffer()[0], 0x55);
     }
 }

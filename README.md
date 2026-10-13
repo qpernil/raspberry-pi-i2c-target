@@ -242,10 +242,21 @@ preserves the Wayland/X11 session variables.
 
 The parser consumes bytes incrementally and does not assume one character
 device read per controller write. It handles merged or fragmented command/data
-messages and writes directly into one canonical 1,024-byte framebuffer. SSD1306
-is presented after its 1,024-byte payload. SH1106 is presented after page 7, at
+messages and writes directly into one canonical 1,024-byte framebuffer.
+SSD1306 uses its declared column/page rectangle to determine payload length;
+partial writes preserve all pixels outside that rectangle. SH1106 I2C writes
+from `display-backends` declare their range with an ending-column address pair
+followed by a starting-column pair. These are native SH1106 commands sent
+identically to physical and virtual displays, adding two bytes per changed
+page while preserving the minimal pixel payload. Legacy full-width SH1106
+pages remain supported; unframed short SH1106 writes cannot be decoded reliably
+when kernel records merge.
+
+SSD1306 presents after each complete rectangle payload. SH1106 is presented after page 7, at
 a wrap to a lower-numbered page when page 7 was missing, or after a 75 ms idle
-timeout for a final incomplete frame. Missing pixels retain their previous
+timeout for an incomplete frame. The timeout is measured from its first
+update and is checked even while traffic continues, so repeated partial updates
+cannot indefinitely postpone rendering. Missing pixels retain their previous
 contents.
 
 SDL expands that monochrome display RAM directly into a streaming ARGB texture.
