@@ -146,6 +146,27 @@ int main(void) {
     assert(bsc_publish_response_locked(&bsc, abc, 3) == 3);
     assert(clock_byte(&bsc) == 0xa1 && clock_byte(&bsc) == 0xb2 && clock_byte(&bsc) == 0xc3);
 
+    /* A 225 us interrupt latency spans ten byte clocks at 400 kHz. Use
+     * the driver's configured TX threshold and actual refill function; a
+     * half-full threshold runs out before this delayed handler can refill. */
+    receive(&bsc, 8); take_request(&bsc, 8);
+    u8 long_response[257];
+    for (unsigned i = 0; i < sizeof(long_response); i++) long_response[i] = i;
+    assert(bsc_publish_response_locked(&bsc, long_response, sizeof(long_response)) == 257);
+    const unsigned levels[] = {2, 4, 8, 12, 14};
+    unsigned threshold = levels[IFLS_DEFAULT & 7], irq_delay = 0;
+    for (unsigned i = 0; i < sizeof(long_response); i++) {
+        assert(occupied && "TX FIFO starved before the delayed refill interrupt");
+        assert(serializer == long_response[i]);
+        if (count) { serializer = fifo[head++ % 16]; count--; } else occupied = false;
+        if (irq_delay) {
+            if (!--irq_delay) bsc_service_locked(&bsc);
+        } else if (bsc.tx_loaded < bsc.tx_len && count <= threshold) {
+            irq_delay = 10;
+        }
+    }
+    puts("PASS: TX interrupt headroom tolerates 225 us refill latency at 400 kHz");
+
     /* Display receive-only mode has no READY and must preserve a backlog,
      * including records containing merged writes. The actual driver functions
      * are used here; no alternate display queue implementation is modeled. */

@@ -32,7 +32,8 @@ Receive-only OLED workloads retain the original two-wire interface and receive
 ring. The separate direct-MMIO demonstration is unchanged.
 
 Hardware validation requirements and results are in the
-[bench plan](docs/hardware-test-plan.md).
+[bench plan](docs/hardware-test-plan.md). Shared-bus HSM/PQC concurrency
+remains unqualified.
 
 ## Supported hardware
 
