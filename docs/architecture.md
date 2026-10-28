@@ -155,7 +155,9 @@ the controller's clock.
 
 Interrupt bit 2 is the BSC break condition, not a receive-timeout interrupt.
 The periodic timer is therefore required even when no FIFO threshold interrupt
-occurs. It observes `RXBUSY` clearing to finish the current receive burst; a
+occurs. It requires receive-idle and an empty RX FIFO in the same `FR` snapshot before
+publishing a receive burst. A final byte arriving after the drain observed an
+empty FIFO is retained for the next service pass. A
 short idle gap can pass entirely between observations, in which case adjacent
 I²C writes are deliberately retained in one record rather than losing bytes.
 
