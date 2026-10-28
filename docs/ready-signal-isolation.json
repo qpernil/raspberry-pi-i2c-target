@@ -99,6 +99,38 @@
         "error_body": "{\"code\":\"endpoint_unavailable\",\"message\":\"write I2C request: Remote I/O error (os error 121)\"}"
       },
       "gpio_cycles": 320
+    },
+    "level-ready-disconnected": {
+      "serial": "24000001",
+      "completed": 500,
+      "payload_bytes": 1449901,
+      "elapsed_seconds": 67.48352351196809,
+      "status": "passed",
+      "passed": true,
+      "first_error": null,
+      "gpio_cycles": 7153
+    },
+    "level-ready-reconnected": {
+      "serial": "24000001",
+      "completed": 67,
+      "payload_bytes": 106831,
+      "elapsed_seconds": 5.07116210804088,
+      "status": "stopped",
+      "passed": false,
+      "first_error": {
+        "serial": "24000001",
+        "index": 67,
+        "payload_length": 2441,
+        "sent": 1793221420.0208,
+        "request_sha256": "f36847e67ecc4e397dd473ba5942746fd6ade07e5d76fc94b950587cc068a068",
+        "status": 503,
+        "received": 1793221420.0762918,
+        "response_length": 94,
+        "response_sha256": "6eb9ce58f8773d54be773d07401140ac008afe1df0cecf73fc69b1bfc749d60d",
+        "error": "HTTP status 503",
+        "error_body": "{\"code\":\"endpoint_unavailable\",\"message\":\"write I2C request: Remote I/O error (os error 121)\"}"
+      },
+      "gpio_cycles": 674
     }
   },
   "confirmed_idle_target_transactions_unchanged_before_restart": {
@@ -108,8 +140,7 @@
   "bsc_off_control": "Service stopped, /dev/bsc-target0 absent, GPIO18/19 input. Level-only READY toggles still reproduced write EREMOTEIO. Original service restored afterwards.",
   "controller_irq_control": "GPIO22 unclaimed input with pull-up. 100 READY level cycles with no bus traffic produced no GPIO IRQ counter increments.",
   "scope_limit": "The direction test hook confirmed Stop, but bulk waveform export timed out; subsequent rearm attempt left scope Ready. Original earlier paired-failure waveforms remain preserved in fair-pqc evidence.",
-  "interpretation": "New BSC response/FIFO publication and pin-direction changes are not necessary for these failures. READY electrical transitions reproduce corruption/NACK with the peer peripheral disabled and controller GPIO22 unclaimed. Physical READY-wire path versus controller input/pad/ground/probe coupling remains to be separated. This does not prove all historical PQC failures share one cause.",
-  "pending_physical_control": "User asked to disconnect only Pi2 GPIO17 to ubuntu4 GPIO22 READY wire, keep shared bus/grounds and C3 probe on Pi2 side if possible.",
+  "interpretation": "The connected-disconnected-reconnected level-toggle comparison fails after 8 successful echoes, passes all 500 (1,449,901 payload bytes over 7,153 GPIO cycles), then fails after 67 successful echoes (674 GPIO cycles). The reconnected request-write failure has EREMOTEIO (121) and an 11 us lock wait. The failures track the connected READY path in this finite reproduction. Wire coupling, controller pad/input, and ground/probe effects remain unresolved; this does not qualify concurrent authenticated PQC traffic.",
   "gpio_drive_controls": {
     "direction": "GPIO17 output-low/input toggling emulates the original open-drain electrical states; never actively drives high.",
     "level": "GPIO17 remains output and is driven high/low (push-pull diagnostic, unlike the original open-drain release-high mode).",
@@ -117,8 +148,28 @@
     "rewrite": "Repeated output-mode writes leave direction and level unchanged."
   },
   "interpretation_limit": "The BSC-disabled level control uses push-pull edges. It demonstrates a peripheral-independent failure in this setup, but cannot by itself prove an identical electrical mechanism to the original open-drain publication edge.",
+  "disconnected_control": {
+    "human_confirmed": true,
+    "electrical_check": "Controller GPIO22 stays high with target GPIO17 driven low.",
+    "bsc_state": "Peer service active but idle; RX/TX transactions and bytes remain zero after restart.",
+    "pulse_mode": "Fixed-output high/low, matching connected level control.",
+    "probe_retention": "C3 target-side retention requested, not independently verified.",
+    "cleanup": "Pulse and temporary connector inactive, GPIO17 input, SDA/SCL ALT3; original service PIDs intact."
+  },
+  "updated_at_utc": "2026-10-28T21:04:38.606315+00:00",
+  "reconnected_control": {
+    "human_confirmed": true,
+    "electrical_check": "Controller GPIO22 follows target GPIO17 low after reconnection; returns high after release.",
+    "bsc_state": "Peer HSM remains idle; RX/TX transactions and bytes remain zero.",
+    "pulse_mode": "Same fixed-output high/low pulses, seed 91, up to 500 echoes.",
+    "failure_phase": "request_write",
+    "request_lock_us": 11,
+    "request_write_us": 54763,
+    "cleanup": "Pulse generator and temporary connector inactive; GPIO17 input/high; SDA/SCL ALT3; original service PIDs intact."
+  },
+  "next_discriminating_control": "Retest with a short READY/ground pair routed away from SDA/SCL; if failures remain, move READY to a spare controller GPIO to separate routing from pad/input effects.",
   "scope_final_state": {
     "status": "Stop",
-    "record": "Retained post-test acquisition; not a newly confirmed time-aligned GPIO failure capture."
+    "record": "Existing retained acquisition; the disconnected/reconnected tests did not arm or capture a new time-aligned waveform."
   }
 }

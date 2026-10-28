@@ -175,12 +175,24 @@ output/low. The fixed-direction level test actively drives both levels; it is
 a push-pull diagnostic, so its BSC-disabled result alone does not prove the
 same electrical mechanism as the original open-drain edge.
 
-The next discriminating control disconnects only the peer READY wire at the
-controller, retaining SDA/SCL, all grounds, and the scope probe on the target
-side. It requires physical bench access and is not yet performed. The
-[isolation record](ready-signal-isolation.json) contains the tested modes,
-counts, errors and limits. The existing BSC service and its state-directory
-configuration are restored after the peripheral-disabled control.
+The connected/disconnected/reconnected comparison implicates the connected
+READY path. The fixed-output high/low control fails after eight successful
+echoes with the lead connected. Disconnecting only that lead at controller
+GPIO22 passes all 500 echoes (1,449,901 payload bytes over 7,153 GPIO cycles);
+reconnecting it restores a request-write `EREMOTEIO` after 67 successful echoes
+and 674 GPIO cycles. Electrical checks verify the disconnection and reconnection.
+The reconnected failing request waits only 11 microseconds for the bus lock.
+The peer's BSC transaction and byte counters remain zero throughout these two
+controls, with its original service running but idle.
+
+The finite comparison does not separate wire coupling, controller pad/input,
+and ground/probe effects, or qualify authenticated PQC concurrency. C3 probe
+retention was requested but not independently verified; no new time-aligned
+waveform is claimed. A short READY/ground pair routed away from SDA/SCL, followed
+by a spare controller input if necessary, can distinguish routing from input
+pad effects. The [isolation record](ready-signal-isolation.json) contains the
+counts, errors and limits. The original service configuration remains intact;
+diagnostic jobs are stopped, READY is reconnected and GPIO17 is input/high.
 
 ## Shared-bus concurrency
 

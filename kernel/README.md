@@ -14,7 +14,9 @@ Device Tree `poll_ns` parameter accepts intervals from 20 to 500 µs.
 
 READY transitions are part of shared-bus signal-integrity qualification. On
 the current Pi 5 / two Pi 3B+ bench, GPIO-only transitions reproduce corruption
-or NACKs even with the toggling peer's BSC peripheral disabled. See the
+or NACKs even with the toggling peer's BSC peripheral disabled. A connected /
+disconnected / reconnected READY-wire control fails, passes 500 echoes, and
+fails again, implicating the connected signal path. See the
 [READY isolation evidence](../docs/hardware-test-plan.md#ready-signal-isolation).
 This does not establish a FIFO-publication defect or qualify concurrent HSM use.
 
