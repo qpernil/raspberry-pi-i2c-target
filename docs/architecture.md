@@ -153,6 +153,12 @@ safety deadline. An interrupt handler delayed long enough for the remaining
 FIFO capacity to fill can still overrun because this peripheral cannot stretch
 the controller's clock.
 
+The transmit threshold is seven-eighths full: refill interrupts start with 14
+FIFO bytes remaining, providing approximately 315 µs at 400 kHz before the FIFO
+empties. The receive threshold remains three-quarters full. Transmit underruns
+can corrupt a reply even when the controller reports a full-length read; inspect
+the driver counters as well as transport results.
+
 Interrupt bit 2 is the BSC break condition, not a receive-timeout interrupt.
 The periodic timer is therefore required even when no FIFO threshold interrupt
 occurs. It requires receive-idle and an empty RX FIFO in the same `FR` snapshot before

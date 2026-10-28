@@ -5,7 +5,8 @@ target FIFO from interrupt context. It supports Raspberry Pi 3B/3B+ and Pi 4B.
 
 The hardware has a 16-byte FIFO, no DMA, no clock stretching, and only 7-bit
 target addresses. The driver combines a three-quarter-full receive threshold
-interrupt with a configurable high-resolution timer (300 µs by default). The
+interrupt and a seven-eighths-full transmit threshold with a configurable
+high-resolution timer (300 µs by default). The
 timer drains sub-threshold receive tails, detects receive completion only when
 a single status snapshot reports receive-idle and an empty RX FIFO, and
 refills pending responses from the same locked context. The
