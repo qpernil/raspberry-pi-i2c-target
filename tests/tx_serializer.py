@@ -53,11 +53,18 @@ struct bsc_target {
 static u8 fifo[16], serializer, input[8192];
 static unsigned count, head, resets, input_len, input_pos, acks;
 static bool occupied, ready_asserted, rx_busy, bus_locked;
+static bool inject_rx_tail;
+static unsigned tail_delay;
 static u32 bsc_read(struct bsc_target *bsc, u32 reg) {
     (void)bsc;
     if (reg == RSR) return 0;
     if (reg == DR) { assert(input_pos < input_len); return input[input_pos++]; }
     assert(reg == FR);
+    if (inject_rx_tail && input_pos == input_len && tail_delay-- == 0) {
+        input[input_len++] = 0xb2;
+        rx_busy = false;
+        inject_rx_tail = false;
+    }
     return (rx_busy ? FR_RXBUSY : 0) | (input_pos == input_len ? FR_RXFE : 0) |
         (count == 16 ? FR_TXFF : 0) | (count == 0 ? FR_TXFE : 0) |
         (count << FR_TXFLEVEL_SHIFT);
@@ -139,6 +146,27 @@ int main(void) {
     assert(bsc_publish_response_locked(&bsc, abc, 3) == 3);
     assert(clock_byte(&bsc) == 0xa1 && clock_byte(&bsc) == 0xb2 && clock_byte(&bsc) == 0xc3);
 
+    /* A 225 us interrupt latency spans ten byte clocks at 400 kHz. Use
+     * the driver's configured TX threshold and actual refill function; a
+     * half-full threshold runs out before this delayed handler can refill. */
+    receive(&bsc, 8); take_request(&bsc, 8);
+    u8 long_response[257];
+    for (unsigned i = 0; i < sizeof(long_response); i++) long_response[i] = i;
+    assert(bsc_publish_response_locked(&bsc, long_response, sizeof(long_response)) == 257);
+    const unsigned levels[] = {2, 4, 8, 12, 14};
+    unsigned threshold = levels[IFLS_DEFAULT & 7], irq_delay = 0;
+    for (unsigned i = 0; i < sizeof(long_response); i++) {
+        assert(occupied && "TX FIFO starved before the delayed refill interrupt");
+        assert(serializer == long_response[i]);
+        if (count) { serializer = fifo[head++ % 16]; count--; } else occupied = false;
+        if (irq_delay) {
+            if (!--irq_delay) bsc_service_locked(&bsc);
+        } else if (bsc.tx_loaded < bsc.tx_len && count <= threshold) {
+            irq_delay = 10;
+        }
+    }
+    puts("PASS: TX interrupt headroom tolerates 225 us refill latency at 400 kHz");
+
     /* Display receive-only mode has no READY and must preserve a backlog,
      * including records containing merged writes. The actual driver functions
      * are used here; no alternate display queue implementation is modeled. */
@@ -161,6 +189,19 @@ int main(void) {
         assert(slot->len == 3 && slot->data[0] == (i & 255));
         assert(slot->data[1] == 0x40 && slot->data[2] == 0xb0);
     }
+
+    /* Commit the final hardware RX byte after the drain's empty observation,
+     * immediately before the service loop samples receive-idle. */
+    memset(&bsc, 0, sizeof(bsc)); bsc.rx_slots = slots; bsc.ready_gpio = &bsc;
+    input[0] = 0xa1; input_len = 1; input_pos = 0;
+    rx_busy = true; bus_locked = true; inject_rx_tail = true; tail_delay = 1;
+    bsc_service_locked(&bsc);
+    assert(bsc.rx_count == 0 && "must not publish a receive record with an unread FIFO tail");
+    bsc_service_locked(&bsc);
+    assert(bsc.rx_count == 1 && bsc.rx_slots[0].len == 2);
+    assert(bsc.rx_slots[0].data[0] == 0xa1 && bsc.rx_slots[0].data[1] == 0xb2);
+    puts("PASS: final receive byte cannot race idle detection");
+
     puts("PASS: receive-only displays retain ordered merged records without READY resets");
     puts("PASS: staged exact reads have no guard, retirement, or reset");
     puts("PASS: next requests clear abandoned data and discard superseded worker results");
