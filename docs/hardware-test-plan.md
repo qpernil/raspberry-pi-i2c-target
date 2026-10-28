@@ -6,6 +6,16 @@ This plan qualifies the current Raspberry Pi BSC target driver as a long-lived
 character-device endpoint, a receive-only display target, and a queued-response
 target with required active-low READY signaling.
 
+## Shared-HSM qualification limit
+
+Concurrent full HSM/PQC operation on a shared BSC bus remains unqualified.
+The finite echo and vendor checks below do not establish reliability for that
+workload. The RX completion check addresses a final-byte race; earlier TX
+refill improves interrupt-latency tolerance. Neither independently resolves the
+remaining NACK, arbitration-loss and MAC-verification failures. See the
+[controller qualification record](https://github.com/qpernil/pkcs11rs/blob/master/docs/i2c-pqc-qualification.json)
+for the tested configurations and limits.
+
 ## Verified behavior
 
 On build-host with the Pi 3B+ targets `i2c-target-1` and `i2c-target-2`

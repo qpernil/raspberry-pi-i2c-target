@@ -5,7 +5,7 @@
  * The hardware has a 16-byte FIFO, no DMA, and no clock stretching. While the
  * character device is open, FIFO interrupts service continuous transfers and
  * a high-resolution timer catches sub-threshold tails and observes
- * RXBUSY/TXBUSY dropping at STOP. A closed device stays electrically idle.
+ * receive-idle with an empty RX FIFO. A closed device stays electrically idle.
  */
 
 #include <linux/delay.h>
@@ -66,9 +66,9 @@
 #define IRQ_BASE (IRQ_RX | IRQ_BREAK | IRQ_OE)
 #define IRQ_ALL (IRQ_BASE | IRQ_TX)
 
-#define IFLS_TX_HALF 2
+#define IFLS_TX_SEVEN_EIGHTHS 4
 #define IFLS_RX_THREE_QUARTERS (3 << 3)
-#define IFLS_DEFAULT (IFLS_TX_HALF | IFLS_RX_THREE_QUARTERS)
+#define IFLS_DEFAULT (IFLS_TX_SEVEN_EIGHTHS | IFLS_RX_THREE_QUARTERS)
 
 #define BSC_FIFO_SIZE 16
 #define BSC_MAX_TRANSFER 8192
@@ -284,7 +284,10 @@ static void bsc_service_locked(struct bsc_target *bsc)
 		bsc_write(bsc, RSR, 0);
 
 	bsc_drain_rx_locked(bsc);
-	if (!(bsc_read(bsc, FR) & FR_RXBUSY))
+	/* A final byte can arrive after the drain observed an empty FIFO.
+	 * Require idle and empty in the same hardware snapshot before publishing.
+	 */
+	if ((bsc_read(bsc, FR) & (FR_RXBUSY | FR_RXFE)) == FR_RXFE)
 		bsc_finish_rx_locked(bsc);
 	bsc_refill_tx_locked(bsc);
 }
