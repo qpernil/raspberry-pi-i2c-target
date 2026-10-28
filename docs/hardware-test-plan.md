@@ -155,6 +155,33 @@ during the baseline real-bus test: its synchronous GPU reads add work absent
 from the ordinary viewer and can perturb FIFO servicing. It is test-only and
 is not installed into production.
 
+## READY signal isolation
+
+The Pi 5 / two Pi 3B+ bench reproduces corruption and request NACKs when only
+an idle peer's READY output changes level. Its BSC RX/TX transaction counters
+stay unchanged. Level-only toggling also fails with that peer's BSC service
+stopped, the device removed, and SDA/SCL configured as inputs. New FIFO
+publication is therefore unnecessary for this reproduction.
+
+CPU/readback controls, unchanged function-select rewrites, and direction changes
+that keep READY logically high pass the finite echo controls. Level-only
+transitions with a fixed output direction fail. These observations distinguish
+the READY signal transition from FIFO loading or pin-direction changes; they
+do not establish the physical coupling route or prove that every historical
+PQC failure has this cause. The controller READY input is unclaimed in this
+experiment, and a separate 100-cycle idle-bus control produces no GPIO IRQ
+increments. The direction-toggle test emulates open-drain release/high and
+output/low. The fixed-direction level test actively drives both levels; it is
+a push-pull diagnostic, so its BSC-disabled result alone does not prove the
+same electrical mechanism as the original open-drain edge.
+
+The next discriminating control disconnects only the peer READY wire at the
+controller, retaining SDA/SCL, all grounds, and the scope probe on the target
+side. It requires physical bench access and is not yet performed. The
+[isolation record](ready-signal-isolation.json) contains the tested modes,
+counts, errors and limits. The existing BSC service and its state-directory
+configuration are restored after the peripheral-disabled control.
+
 ## Shared-bus concurrency
 
 Run two target addresses on the same physical bus. The controller must hold one

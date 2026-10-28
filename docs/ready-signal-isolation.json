@@ -1,0 +1,124 @@
+{
+  "recorded_at_utc": "2026-10-28T20:08:36.131560+00:00",
+  "controller": "ubuntu4, Pi 5/RP1, original 400kHz configured bus",
+  "active_target": "0x24 serial24000001, byte-exact unauthenticated echo only",
+  "idle_target": "0x25 serial25000002, GPIO17 READY exercised without I2C requests",
+  "source_revisions": {
+    "controller": "1f49d601230213b9ece7e3b89bacad546d9eb4de",
+    "target_driver": "431d2af07e19dc9262362e86a87c17bb889c35b0",
+    "loaded_module_srcversion": "DDD74292F38B114AAEF9E9D"
+  },
+  "cases": {
+    "baseline": {
+      "passed": true,
+      "completed": 100,
+      "payload_bytes": 231376,
+      "elapsed_seconds": 10.792849279008806,
+      "first_error": null
+    },
+    "readback": {
+      "passed": true,
+      "completed": 200,
+      "payload_bytes": 533792,
+      "elapsed_seconds": 24.86466600804124,
+      "first_error": null,
+      "gpio_cycles": 2633
+    },
+    "rewrite": {
+      "passed": true,
+      "completed": 200,
+      "payload_bytes": 533792,
+      "elapsed_seconds": 24.868060961016454,
+      "first_error": null,
+      "gpio_cycles": 2828
+    },
+    "direction": {
+      "passed": false,
+      "completed": 14,
+      "payload_bytes": 13543,
+      "elapsed_seconds": 1.2588870159815997,
+      "first_error": {
+        "serial": "24000001",
+        "index": 14,
+        "payload_length": 8000,
+        "sent": 1793217468.0518835,
+        "request_sha256": "1fa994d39c839b68b10f55380b8796fe909c505f874bb7f5eb11ede89ce14c7f",
+        "status": 200,
+        "received": 1793217468.421854,
+        "response_length": 8003,
+        "response_sha256": "2634f7cf0527235a692f554c3d4f351b90f601a29e7ccdddbabdc46ad2d9cd34",
+        "error": "byte mismatch",
+        "first_differing_offset": 4019
+      },
+      "gpio_cycles": 184
+    },
+    "level": {
+      "passed": false,
+      "completed": 8,
+      "payload_bytes": 114,
+      "elapsed_seconds": 0.03148509102175012,
+      "first_error": {
+        "serial": "24000001",
+        "index": 8,
+        "payload_length": 255,
+        "sent": 1793217568.9805908,
+        "request_sha256": "8ae62ed17607b3ab5c6c6d2efb3368e68932370f144f6c7383a2b52cc204fc3e",
+        "status": 503,
+        "received": 1793217568.983305,
+        "response_length": 94,
+        "response_sha256": "6eb9ce58f8773d54be773d07401140ac008afe1df0cecf73fc69b1bfc749d60d",
+        "error": "HTTP status 503",
+        "error_body": "{\"code\":\"endpoint_unavailable\",\"message\":\"write I2C request: Remote I/O error (os error 121)\"}"
+      },
+      "gpio_cycles": 30
+    },
+    "high-direction": {
+      "passed": true,
+      "completed": 200,
+      "payload_bytes": 533792,
+      "elapsed_seconds": 24.866386790992692,
+      "first_error": null,
+      "gpio_cycles": 2711
+    },
+    "level-bsc-off": {
+      "passed": false,
+      "completed": 41,
+      "payload_bytes": 44735,
+      "elapsed_seconds": 2.1549944059806876,
+      "first_error": {
+        "serial": "24000001",
+        "index": 41,
+        "payload_length": 3133,
+        "sent": 1793217739.925673,
+        "request_sha256": "d1860c8481132aa139b60a4069174e8bbf6c5ab4759d78034f40cb48e25ad58c",
+        "status": 503,
+        "received": 1793217739.9559386,
+        "response_length": 94,
+        "response_sha256": "6eb9ce58f8773d54be773d07401140ac008afe1df0cecf73fc69b1bfc749d60d",
+        "error": "HTTP status 503",
+        "error_body": "{\"code\":\"endpoint_unavailable\",\"message\":\"write I2C request: Remote I/O error (os error 121)\"}"
+      },
+      "gpio_cycles": 320
+    }
+  },
+  "confirmed_idle_target_transactions_unchanged_before_restart": {
+    "rx": 30860,
+    "tx": 30860
+  },
+  "bsc_off_control": "Service stopped, /dev/bsc-target0 absent, GPIO18/19 input. Level-only READY toggles still reproduced write EREMOTEIO. Original service restored afterwards.",
+  "controller_irq_control": "GPIO22 unclaimed input with pull-up. 100 READY level cycles with no bus traffic produced no GPIO IRQ counter increments.",
+  "scope_limit": "The direction test hook confirmed Stop, but bulk waveform export timed out; subsequent rearm attempt left scope Ready. Original earlier paired-failure waveforms remain preserved in fair-pqc evidence.",
+  "interpretation": "New BSC response/FIFO publication and pin-direction changes are not necessary for these failures. READY electrical transitions reproduce corruption/NACK with the peer peripheral disabled and controller GPIO22 unclaimed. Physical READY-wire path versus controller input/pad/ground/probe coupling remains to be separated. This does not prove all historical PQC failures share one cause.",
+  "pending_physical_control": "User asked to disconnect only Pi2 GPIO17 to ubuntu4 GPIO22 READY wire, keep shared bus/grounds and C3 probe on Pi2 side if possible.",
+  "gpio_drive_controls": {
+    "direction": "GPIO17 output-low/input toggling emulates the original open-drain electrical states; never actively drives high.",
+    "level": "GPIO17 remains output and is driven high/low (push-pull diagnostic, unlike the original open-drain release-high mode).",
+    "high-direction": "GPIO17 switches between input and output-high; logically stays high.",
+    "rewrite": "Repeated output-mode writes leave direction and level unchanged."
+  },
+  "interpretation_limit": "The BSC-disabled level control uses push-pull edges. It demonstrates a peripheral-independent failure in this setup, but cannot by itself prove an identical electrical mechanism to the original open-drain publication edge.",
+  "scope_final_state": {
+    "status": "Stop",
+    "record": "Retained post-test acquisition; not a newly confirmed time-aligned GPIO failure capture."
+  }
+}
