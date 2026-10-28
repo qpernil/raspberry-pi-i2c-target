@@ -12,6 +12,12 @@ a single status snapshot reports receive-idle and an empty RX FIFO, and
 refills pending responses from the same locked context. The
 Device Tree `poll_ns` parameter accepts intervals from 20 to 500 µs.
 
+READY transitions are part of shared-bus signal-integrity qualification. On
+the current Pi 5 / two Pi 3B+ bench, GPIO-only transitions reproduce corruption
+or NACKs even with the toggling peer's BSC peripheral disabled. See the
+[READY isolation evidence](../docs/hardware-test-plan.md#ready-signal-isolation).
+This does not establish a FIFO-publication defect or qualify concurrent HSM use.
+
 ## Character-device interface
 
 The overlay and loaded module create `/dev/bsc-target0` at address `0x13` by
