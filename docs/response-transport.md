@@ -67,3 +67,16 @@ Generic clients need no HSM control operation for normal complete exchanges.
 Clients abandoning a response must implement recovery in their own application
 protocol using the ioctl, or restart their target application while the bus is
 quiescent. The driver reserves no byte sequence from those generic clients.
+
+## Client compatibility
+
+| Client | Contract |
+| --- | --- |
+| Raw READY request/response | Application bytes and ABI 3 layout are unchanged. Fully consume each reply. An abandoned reply requires an application recovery request followed by the owner ioctl, or a quiescent target restart. |
+| HSM frontend and connector | Upgrade together with the recovery-capable driver. Normal HSM frames, authentication and secure-session checks are unchanged; connection startup uses the frontend control operation. |
+| Receive-only OLED/display | No READY or recovery control is required. The receive ring and application bytes are unchanged. |
+| Direct `/dev/mem` demonstration | Independent of this kernel driver and unchanged. |
+
+The finite hardware record covers raw echo and receive-only byte paths. It does
+not qualify every application, sustained concurrent authenticated PQC, or an
+uncalibrated electrical margin.
