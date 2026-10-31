@@ -146,8 +146,7 @@ root; it detects Pi 3 versus Pi 4, applies the matching runtime overlay, loads
 the module, and opens the character device:
 
 ```sh
-sudo ./prebuilt/aarch64/target-driver --ready-gpio 17  # Raspberry Pi OS ARM64
-# or: sudo ./target/release/target-driver --ready-gpio 17  # locally built Rust executable
+sudo ./target/release/target-driver --ready-gpio 17
 ```
 
 The default address is `0x13`. An alternative address and kernel artifact
