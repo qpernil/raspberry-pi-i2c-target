@@ -39,10 +39,9 @@ defines = source[source.index('#define DR '):source.index('struct bsc_rx_slot')]
 model = r"""
 struct bsc_rx_slot { u32 len; u8 data[BSC_MAX_TRANSFER]; };
 struct bsc_target {
-    bool tx_queued, worker_pending, rx_overflowed, rx_faulted, wire_recovered;
-    u64 recoveries;
+    bool tx_queued, worker_pending, rx_overflowed;
     size_t tx_len, tx_loaded, rx_work_len;
-    u64 request_generation, worker_generation;
+    u64 request_generation, worker_generation, recoveries;
     void *ready_gpio;
     u8 tx_data[BSC_MAX_TRANSFER], rx_work[BSC_MAX_TRANSFER];
     struct bsc_rx_slot *rx_slots;
@@ -56,14 +55,13 @@ static unsigned count, head, resets, input_len, input_pos, acks;
 static bool occupied, ready_asserted, rx_busy, bus_locked;
 static bool inject_rx_tail;
 static unsigned tail_delay, recovery_high_delays;
-static u8 tail_value;
 static u32 bsc_read(struct bsc_target *bsc, u32 reg) {
     (void)bsc;
     if (reg == RSR) return 0;
     if (reg == DR) { assert(input_pos < input_len); return input[input_pos++]; }
     assert(reg == FR);
     if (inject_rx_tail && input_pos == input_len && tail_delay-- == 0) {
-        input[input_len++] = tail_value;
+        input[input_len++] = 0xb2;
         rx_busy = false;
         inject_rx_tail = false;
     }
@@ -77,54 +75,24 @@ static void bsc_write(struct bsc_target *bsc, u32 reg, u32 value) {
     if (!occupied) { serializer = value; occupied = true; return; }
     assert(count < 16); fifo[(head + count++) % 16] = value;
 }
-static u32 crc32_le(u32 crc, const u8 *p, size_t n) {
-    for (size_t i = 0; i < n; i++) {
-        crc ^= p[i];
-        for (unsigned b = 0; b < 8; b++) crc = (crc >> 1) ^ (0xedb88320U & (0U - (crc & 1)));
-    }
-    return crc;
-}
 static void bsc_configure_locked(struct bsc_target *bsc) {
     (void)bsc; assert(bus_locked); count = head = 0; occupied = false; resets++;
 }
 static void bsc_set_ready(struct bsc_target *bsc, bool ready) {
     (void)bsc;
-    if (!ready) { assert(bus_locked && !occupied && !count); acks++; }
+    if (!ready) { assert(bus_locked); acks++; }
     ready_asserted = ready;
 }
 static void udelay(unsigned delay) { assert(delay == 20); if (!ready_asserted) recovery_high_delays++; }
 static void wake_up_interruptible(int *wait) { (void)wait; }
 """
 tests = r"""
-static void wire_input(const u8 *payload, unsigned len, bool recovery) {
-    assert(len + BSC_WIRE_OVERHEAD <= sizeof(input));
-    memcpy(input, "BSC\x04", 4); input[4] = recovery ? 2 : 1; input[5] = 0;
-    input[6] = len >> 8; input[7] = len;
-    input[8] = 0x12; input[9] = 0x34; input[10] = 0x56; input[11] = 0x78;
-    if (len) memcpy(input + 12, payload, len);
-    u32 crc = crc32_le(~0U, input, len + 12) ^ ~0U;
-    for (unsigned i = 0; i < 4; i++) input[len + 12 + i] = crc >> (24 - 8 * i);
-    input_len = len + BSC_WIRE_OVERHEAD; input_pos = 0;
-}
 static void receive(struct bsc_target *bsc, u8 command) {
-    bus_locked = true; wire_input(&command, 1, false);
-    unsigned before = acks, reset_before = resets, high_before = recovery_high_delays;
+    bus_locked = true; input[0] = command; input_len = 1; input_pos = 0;
+    unsigned before = acks, reset_before = resets;
     bsc_service_locked(bsc);
-    assert(acks == before + 1 && !ready_asserted && !occupied && !count);
-    assert(resets == reset_before && "normal receive must not reset BSC");
-    assert(recovery_high_delays == high_before);
-    bus_locked = false;
-}
-static u8 clock_byte(struct bsc_target *bsc);
-static void recover(struct bsc_target *bsc) {
-    bus_locked = true; wire_input(NULL, 0, true);
-    unsigned before = resets, high_before = recovery_high_delays;
-    bsc_service_locked(bsc);
-    assert(resets == before + 1 && bsc->wire_recovered);
-    assert(recovery_high_delays == high_before + 1 && "recovery ACK must remain released before response assertion");
-    const u8 reply[] = {0x80, 0, 8, 'B', 'S', 'C', 4, 0x12, 0x34, 0x56, 0x78};
-    for (unsigned i = 0; i < sizeof(reply); i++) assert(clock_byte(bsc) == reply[i]);
-    assert(!occupied && !count);
+    assert(acks == before + 1 && !ready_asserted);
+    assert(resets == reset_before && "normal receive must never reset BSC");
     bus_locked = false;
 }
 static void take_request(struct bsc_target *bsc, u8 expected) {
@@ -138,10 +106,19 @@ static u8 clock_byte(struct bsc_target *bsc) {
     if (count) { serializer = fifo[head++ % 16]; count--; } else occupied = false;
     bsc_service_locked(bsc); return value;
 }
+static void recover(struct bsc_target *bsc) {
+    receive(bsc, 0); take_request(bsc, 0); bus_locked = true;
+    unsigned before = resets, high_before = recovery_high_delays;
+    assert(bsc_recover_response_locked(bsc) == 0);
+    assert(resets == before + 1 && recovery_high_delays == high_before + 1);
+    const u8 reply[] = {0x80, 0, 1, 0xa5};
+    assert(bsc_publish_response_locked(bsc, reply, sizeof(reply)) == sizeof(reply));
+    for (unsigned i = 0; i < sizeof(reply); i++) assert(clock_byte(bsc) == reply[i]);
+    assert(!occupied && !count); bus_locked = false;
+}
 int main(void) {
     static struct bsc_rx_slot slots[BSC_RX_SLOTS];
     struct bsc_target bsc = { .rx_slots = slots, .ready_gpio = &bsc };
-    recover(&bsc);
     for (unsigned length = 1; length <= 8192; length = length < 40 ? length + 1 : (length < 4096 ? length * 2 : (length < 8192 ? 8192 : 8193))) {
         receive(&bsc, 1); take_request(&bsc, 1);
         u8 response[BSC_MAX_TRANSFER];
@@ -161,7 +138,7 @@ int main(void) {
     assert(bsc_publish_response_locked(&bsc, abc, 3) == 3);
     assert(clock_byte(&bsc) == 0xa1 && clock_byte(&bsc) == 0xb2);
     assert(count == 0 && occupied && serializer == 0xc3);
-    recover(&bsc); /* Explicitly clears the abandoned serializer. */
+    recover(&bsc); /* Explicit owner-requested recovery clears the serializer. */
     receive(&bsc, 3);
     take_request(&bsc, 3);
     receive(&bsc, 4); receive(&bsc, 5); /* Latest request wins during computation. */
@@ -174,7 +151,7 @@ int main(void) {
     /* New bytes already in hardware invalidate the result before the timer runs. */
     recover(&bsc);
     receive(&bsc, 6); take_request(&bsc, 6);
-    bus_locked = true; rx_busy = true; const u8 seven = 7; wire_input(&seven, 1, false);
+    bus_locked = true; rx_busy = true; input[0] = 7; input_len = 1; input_pos = 0;
     assert(bsc_publish_response_locked(&bsc, abc, 3) == 3);
     assert(bsc.stats.tx_discarded == 2 && !occupied);
     rx_busy = false; bsc_service_locked(&bsc); bus_locked = false;
@@ -229,9 +206,7 @@ int main(void) {
     /* Commit the final hardware RX byte after the drain's empty observation,
      * immediately before the service loop samples receive-idle. */
     memset(&bsc, 0, sizeof(bsc)); bsc.rx_slots = slots; bsc.ready_gpio = &bsc;
-    bsc.wire_recovered = true;
-    const u8 pair[] = {0xa1, 0xb2}; wire_input(pair, 2, false);
-    tail_value = input[--input_len];
+    input[0] = 0xa1; input_len = 1; input_pos = 0;
     rx_busy = true; bus_locked = true; inject_rx_tail = true; tail_delay = 1;
     bsc_service_locked(&bsc);
     assert(bsc.rx_count == 0 && "must not publish a receive record with an unread FIFO tail");
@@ -240,37 +215,25 @@ int main(void) {
     assert(bsc.rx_slots[0].data[0] == 0xa1 && bsc.rx_slots[0].data[1] == 0xb2);
     puts("PASS: final receive byte cannot race idle detection");
 
-    /* A lost partial request concatenated with recovery must never reach a worker. */
+    /* Raw byte records are unchanged; the driver does not reserve wire commands. */
     memset(&bsc, 0, sizeof(bsc)); bsc.rx_slots = slots; bsc.ready_gpio = &bsc;
-    bsc.wire_recovered = true; bus_locked = true;
-    const u8 one = 1; wire_input(&one, 1, false);
-    input_len = 5; rx_busy = true; bsc_service_locked(&bsc);
-    wire_input(NULL, 0, true); rx_busy = false; bsc_service_locked(&bsc);
-    assert(bsc.rx_count == 0 && !bsc.wire_recovered);
-    recover(&bsc); receive(&bsc, 9); take_request(&bsc, 9);
-
-    /* Bad CRC and legacy raw commands fail closed without a peripheral reset. */
-    unsigned before = resets;
-    bus_locked = true; wire_input(&one, 1, false); input[12] ^= 1;
-    bsc_service_locked(&bsc);
-    assert(bsc.rx_count == 0 && resets == before && !bsc.wire_recovered);
-    recover(&bsc);
-    bus_locked = true; input[0] = 6; input_len = 1; input_pos = 0;
-    bsc_service_locked(&bsc);
-    assert(bsc.rx_count == 0 && !bsc.wire_recovered);
-    /* Recovery invalidates an executing worker without replacing its result. */
-    recover(&bsc); receive(&bsc, 10); take_request(&bsc, 10); recover(&bsc);
-    unsigned discarded = bsc.stats.tx_discarded;
-    assert(bsc_publish_response_locked(&bsc, abc, 3) == 3);
-    assert(bsc.stats.tx_discarded == discarded + 1 && !occupied && !count);
-    bus_locked = true; wire_input(&one, 1, false); bsc.rx_faulted = true;
-    before = resets; bsc_service_locked(&bsc);
-    assert(bsc.rx_count == 0 && resets == before && !bsc.wire_recovered);
-    puts("PASS: recovery is explicit; normal receives never reset BSC");
-    puts("PASS: corrupt, partial, concatenated and legacy frames never reach a worker");
+    bus_locked = true; rx_busy = false;
+    const u8 raw[] = {0, 0xff, 'B', 'S', 'C', 4, 0, 1};
+    memcpy(input, raw, sizeof(raw)); input_len = sizeof(raw); input_pos = 0;
+    unsigned before = resets; bsc_service_locked(&bsc);
+    assert(resets == before && bsc.rx_count == 1);
+    assert(bsc.rx_slots[0].len == sizeof(raw));
+    assert(memcmp(bsc.rx_slots[0].data, raw, sizeof(raw)) == 0);
+    take_request(&bsc, 0);
+    rx_busy = true;
+    assert(bsc_recover_response_locked(&bsc) == -EAGAIN && resets == before);
+    rx_busy = false;
+    assert(bsc_recover_response_locked(&bsc) == 0 && resets == before + 1);
+    puts("PASS: raw clients retain their byte protocol; only explicit recovery resets BSC");
+    puts("PASS: recovery refuses active input and holds READY released before publication");
     puts("PASS: receive-only displays retain ordered merged records without READY resets");
     puts("PASS: staged exact reads have no guard, retirement, or reset");
-    puts("PASS: explicit recovery clears abandoned data and superseded worker results are discarded");
+    puts("PASS: explicit recovery clears abandoned data; superseded worker results are discarded");
 }
 """
 with tempfile.TemporaryDirectory() as temp:
@@ -278,7 +241,7 @@ with tempfile.TemporaryDirectory() as temp:
     c = path / 'test.c'
     c.write_text(prefix + defines + model + '\n'.join(function(name) for name in (
         'bsc_set_interrupts_locked', 'bsc_drain_rx_locked', 'bsc_refill_tx_locked',
-        'bsc_wire_u32', 'bsc_wire_kind', 'bsc_ack_request_locked',
-        'bsc_recover_wire_locked', 'bsc_finish_rx_locked', 'bsc_service_locked', 'bsc_publish_response_locked')) + tests)
+        'bsc_ack_request_locked', 'bsc_finish_rx_locked', 'bsc_service_locked',
+        'bsc_recover_response_locked', 'bsc_publish_response_locked')) + tests)
     subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', str(c), '-o', str(path / 'test')], check=True)
     subprocess.run([str(path / 'test')], check=True)

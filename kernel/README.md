@@ -28,24 +28,22 @@ not alter the existing GPIO configuration until an application opens the
 character device.
 
 Response mode requires an active-low, open-drain READY GPIO and driver ABI 3.
-Upgrade controller and target wire versions together; existing ABI 3 workers
-remain compatible. Receive-only display workloads do not require READY and retain their 1,024-record receive ring.
+The HSM frontend and connector require a recovery-capable driver and coordinated
+updates; other ABI 3 workers retain their byte interface. Receive-only display workloads do not require READY and retain their 1,024-record receive ring.
 
-READY response mode uses [wire protocol 4](../docs/response-transport.md). The controller envelopes
-normal requests with a version, length and CRC, and fully consumes each response
-before the next normal request. The driver acknowledges request acceptance but
-keeps BSC enabled in I2C mode; normal receives never purge or reconfigure it.
-Controller READY detection stays rising-only; response readiness uses bounded
-level polling. The controller holds the bus lock through request acknowledgment
-and separately across the complete response read.
+The [raw exchange and explicit-recovery contract](../docs/response-transport.md) preserves
+application bytes and the 8192-byte limit. Normal receives acknowledge acceptance
+and keep BSC enabled in I2C mode without purging or reconfiguration. The HSM
+connector retains rising-only READY detection and polls the response level.
+The shared bus lock covers request acceptance and separately the complete read.
 
-Only explicit recovery, performed before DeviceInfo on open/reconnect or after
-an incomplete exchange, clears old transmit state. The driver handles recovery
-without involving the HSM worker and returns a version/token confirmation.
-Recovery retains the bus lock through its entire handshake and response.
-Invalid or corrupt envelopes are discarded before userspace. Receive-only
-workloads retain their unframed interface. Upgrade controller and target together;
-the character-device ABI remains 3.
+The target application uses `BSC_TARGET_IOC_RECOVER` only for explicit recovery
+after an incomplete exchange or reconnect. The generic driver recognizes no
+wire commands or checksums. The HSM frontend implements its reserved recovery
+operation through this ioctl, outside the HSM core. Existing raw echo clients
+and receive-only streams retain their data formats; clients abandoning replies
+must arrange explicit recovery or a quiescent target restart. Character-device
+ABI 3 gains a recovery capability flag without changing its existing layouts.
 
 One worker executes requests sequentially. With READY, the driver retains only
 one pending request, replacing it when newer input arrives. A worker response

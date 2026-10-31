@@ -8,20 +8,18 @@ target with required active-low READY signaling.
 
 ## Explicit recovery qualification
 
-[The wire-protocol-4 validation record](explicit-recovery-validation.json)
-verifies 100 normal echoes with only the initial recovery, 50 echoes with
-intentional abandoned response bytes and the expected explicit recoveries,
-30 concurrent echoes per target, 8176-byte application requests, and reconnects.
-Normal exchanges do not add recoveries. The model also verifies rejection of
-corrupt/partial frames and suppression of late worker results.
+The [raw exchange contract](response-transport.md) keeps normal application data
+unchanged and reserves purging for a target-owner ioctl. The C model checks raw
+byte preservation, receive-only backlog, abandoned serializer recovery, refusal
+during active input, late-result suppression and unchanged staged responses.
+HSM frontend and controller tests check the reserved recovery operation. Hardware
+qualification must cover normal traffic, abandoned replies, reconnects and the
+bundled raw echo client before recording deployment as complete.
 
-The original GPIO-only READY2 pulse control still fails after 78 successful
-Pi1 echoes with write arbitration loss and SDA held low. Pi2 receives no I2C
-commands in that control. BSC remains configured for I2C and READY edge detection
-stays fixed, so their routine mode switches are not required for this reproduction.
-No new time-aligned scope trace is claimed. Low/release bus-clear clocks and STOP,
-then explicit recovery, restore both targets; four echoes per target pass.
-The targets finish active with `CR=0x305`, `FR=0x12`, and idle-high SDA/SCL.
+The original READY2-triggered failure remains an open qualification limit.
+It reproduced with normal BSC control-register writes and controller READY edge
+reconfiguration removed. GPIO24 and direct wiring did not eliminate it. Capture
+READY2 with SDA/SCL before attributing its mechanism to driver or electrical effects.
 
 ## Shared-HSM qualification limit
 
@@ -47,10 +45,10 @@ also verifies that two newer requests replace the pending slot and suppress
 the old result: the counters record one pending replacement and one discarded
 worker response. The C model covers the same ownership and FIFO transitions.
 
-The Linux controller retains rising-only GPIO detection for request acceptance
-and uses bounded level polling for response readiness. Wire protocol 4 requires
-explicit recovery on reconnect or after an incomplete exchange; normal requests
-do not purge or reconfigure BSC. See [the transport contract](response-transport.md).
+The HSM controller retains rising-only GPIO detection for request acceptance
+and uses response-level polling. It holds bus admission through its entire
+explicit recovery operation, including the target ioctl and confirmation reply.
+Normal application bytes and driver receive-only streams are unchanged.
 
 The receive-only display parser and launcher tests cover partial updates,
 merged records, and arbitrary read splits. Producer/consumer qualification in

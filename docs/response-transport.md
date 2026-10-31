@@ -1,68 +1,69 @@
-# READY response transport, wire protocol 4
+# Raw response exchange and explicit recovery
 
-The character-device ABI remains version 3. READY response mode requires wire
-protocol 4 on the I2C controller and target driver. Receive-only mode passes
-unframed bytes unchanged. Existing HSM workers use the same character-device
-interface and receive only validated request payloads.
-
-Each controller write is one frame, encoded as:
-
-| Offset | Size | Meaning |
-| --- | --- | --- |
-| 0 | 4 | `42 53 43 04` (`BSC`, version 4) |
-| 4 | 1 | Kind: 1 normal request, 2 explicit recovery |
-| 5 | 1 | Reserved, zero |
-| 6 | 2 | Payload length, big endian |
-| 8 | 4 | Controller token, big endian |
-| 12 | length | Application request, empty for recovery |
-| 12 + length | 4 | CRC-32/ISO-HDLC of all preceding bytes, big endian |
-
-The 8192-byte Linux I2C write limit permits 8176 application-request bytes.
-Application responses retain their existing framing and 8192-byte limit.
-CRC detects accidental corruption; it is not authentication. Invalid lengths,
-CRC failures, RX overruns and legacy frames are dropped before userspace and
-require recovery before further normal requests. Partial records concatenated
-with recovery data fail framing/CRC validation rather than becoming HSM commands.
+The kernel driver preserves application bytes. Normal controller writes are
+received unchanged through character-device ABI 3; responses are queued unchanged.
+Requests and responses support up to 8192 bytes. There is no additional request
+envelope or checksum. Receive-only OLED/display streams and ordinary raw echo
+clients retain their byte protocols. The direct `/dev/mem` demonstration is
+independent of this driver and is unchanged.
 
 ## Normal exchange
 
-The controller may send a normal request only after fully consuming the prior
-response, or after successfully completing recovery. It holds the shared bus
-lock through the complete write and the target's physical rising READY
-acknowledgment. The target leaves BSC enabled in I2C mode, strips the envelope,
-and queues the application payload. No control-register reset, serializer purge,
-address rewrite or FIFO-threshold rewrite occurs on this path.
+The controller must fully consume the preceding response before sending another
+normal request. The driver invalidates older software work on new input, detects
+receive completion from idle/empty flags, and acknowledges acceptance with a
+20 microsecond READY assertion followed by release. BSC stays enabled in I2C mode:
+normal receives do not reset CR, purge the serializer, rewrite the address or
+rewrite FIFO thresholds. READY remains asserted after a response read.
 
-The target guarantees the acknowledgment with a 20 microsecond low pulse followed
-by release. The controller requests rising-edge detection once and retains it
-throughout the connection. It releases the bus lock after acknowledgment and
-checks READY's active-low response level at bounded 100 microsecond intervals.
-It reacquires the lock to read the exact complete response. READY remains low
-afterward; the next acknowledged request clears the old READY state.
+The shared bus lock covers the write and request acknowledgment, and separately
+the complete response read. The HSM connector requests rising-edge detection once
+and checks response readiness by level polling at 100 microsecond intervals.
+Linux scheduling can extend that interval. It does not reconfigure READY edges
+between requests. All clients sharing an adapter must cooperate in bus admission.
 
-## Explicit recovery
+## Target-side explicit recovery ioctl
 
-Before DeviceInfo on every open/reconnect, and after an incomplete or uncertain
-exchange before another command, the controller sends a kind-2 frame with empty
-payload and a fresh token. It holds the bus lock for the whole recovery exchange.
-The driver invalidates older work, purges the old FIFO/serializer, restores BSC
-configuration, and returns `80 00 08 42 53 43 04` followed by the four-byte token.
-READY remains released for at least 20 microseconds between the recovery
-acknowledgment and response assertion so the controller can latch the rising
-edge. The controller consumes and verifies all 11 bytes before any application request.
-The recovery control frame never reaches an HSM worker. Generation checks discard
-a late result from an older worker without replaying its operation.
+`BSC_TARGET_IOC_RECOVER`, `_IO('B', 3)` (`0x4203`), is issued by the application
+owning the target descriptor after reading an explicit recovery request. GET_INFO
+retains ABI 3 and advertises `BSC_TARGET_CAP_RECOVER` in `reserved[1]` bit 0.
 
-The exceptional purge uses the hardware-qualified disable/enable sequence;
-its intermediate modes are not used during normal exchanges. The `recoveries`
-sysfs counter counts explicit wire recoveries separately from normal RX/TX
-counters. Initial device activation also initializes hardware; it is not a
-normal exchange. An unread serializer byte cannot be inferred from TXFE/TXBUSY,
-so recovery cannot be replaced by trusting those flags.
+The ioctl services pending input, verifies that the worker still owns the latest
+request and that reception is idle, then discards old transmit state using the
+hardware-qualified FIFO/serializer purge. It preserves the recovery request's
+ownership so the application can publish its confirmation normally. READY remains
+released for at least 20 microseconds before that reply. A superseded request or
+active receive returns `EAGAIN`; absence of a pending request or READY returns
+`EPROTO`. The controller must retain the physical bus lock through the entire
+recovery exchange. The `recoveries` sysfs counter counts successful ioctls.
 
-A recovery handshake failure fails the connection closed. It does not replay an
-uncertain HSM command, and it does not claim to clear a physically stuck bus.
-Keep controller traffic quiescent during module/service lifecycle changes.
-Old controllers and drivers are incompatible with this wire format and must be
-updated together. A legacy driver cannot return the version/token confirmation;
-a legacy controller's unframed request is rejected by the new driver.
+Initial device activation also initializes hardware. Ordinary FIFO flags cannot
+prove that an abandoned serializer byte was consumed, so incomplete exchanges
+require explicit recovery rather than inferring completion from TXFE/TXBUSY.
+
+## HSM frontend recovery operation
+
+The I2C HSM frontend, rather than the generic kernel driver, reserves one control
+operation. It uses the existing three-byte HSM frame format:
+
+- Request: `00 00 0d`, ASCII `BSCRECOV`, version byte `01`, four-byte big-endian token.
+- Confirmation: identical 16 bytes with command byte `80`.
+
+The frontend recognizes only this exact command, length, marker and version,
+invokes the recovery ioctl, and returns the token confirmation. It does not send
+the control operation to the HSM core. Ordinary requests go to the existing core
+without another framing layer. NACK/arbitration/read/write errors are reported by
+the adapter; application framing and authenticated-session MACs provide HSM error
+checks. Unauthenticated raw protocols without integrity checks cannot detect every
+silent bit error.
+
+The connector performs this operation before DeviceInfo on every open/reconnect.
+An incomplete or uncertain exchange closes the transport; a later connection
+recovers before another command. Failed commands are never replayed. A failed
+recovery fails the connection closed and does not clear a physically stuck bus.
+
+Upgrade the HSM frontend and connector together with a recovery-capable driver.
+Generic clients need no HSM control operation for normal complete exchanges.
+Clients abandoning a response must implement recovery in their own application
+protocol using the ioctl, or restart their target application while the bus is
+quiescent. The driver reserves no byte sequence from those generic clients.
