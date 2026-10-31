@@ -1,5 +1,7 @@
 # Raspberry Pi I²C target
 
+Hostnames and device/account identifiers below are illustrative; replace them with your own configured values.
+
 The Rust tools require Rust 1.95 or newer. CI checks that minimum alongside stable Rust.
 
 [![CI](https://github.com/qpernil/raspberry-pi-i2c-target/actions/workflows/ci.yml/badge.svg)](https://github.com/qpernil/raspberry-pi-i2c-target/actions/workflows/ci.yml)
@@ -132,21 +134,17 @@ cd raspberry-pi-i2c-target
 git pull --ff-only
 ```
 
-The Rust programs have no Cargo dependencies. Raspberry Pi OS ARM64 users can
-use the checked-in executables under `prebuilt/aarch64/`; they are built from a
-clean Git checkout on Ubuntu ARM64. The [build provenance](prebuilt/aarch64/README.md)
-records source revisions, toolchains and Raspberry Pi runtime compatibility.
-Verify them with:
+The Rust programs have no Cargo dependencies. Build them locally on each
+capable host, including Raspberry Pi OS and Ubuntu:
 
 ```sh
-(cd prebuilt/aarch64 && sha256sum -c SHA256SUMS)
+cargo build --release --locked --bins
 ```
 
-Ubuntu users should build the Rust programs locally:
-
-```sh
-cargo build --release --locked
-```
+This repository does not distribute prebuilt helper executables. The lab's
+`i2c-target-1` and `i2c-target-2` consume only the supervisor and I2C HSM
+prebuilts from their respective repositories; never run Rust builds on those
+two memory-constrained hosts. Other lab hosts build their own Rust programs.
 
 The kernel module and overlays are never distributed as prebuilts. On every Pi
 3 or Pi 4 target, build them locally so the Makefile uses the running kernel's
@@ -168,13 +166,7 @@ explicit; see [the kernel driver documentation](kernel/README.md#future-dkms-int
 
 ## Run the kernel target
 
-Start the target first. Use the checked-in Rust executable on Raspberry Pi OS:
-
-```sh
-sudo ./prebuilt/aarch64/target-driver --ready-gpio 17
-```
-
-Or use the locally built executable on Ubuntu:
+Start the target first, using the locally built executable:
 
 ```sh
 sudo ./target/release/target-driver --ready-gpio 17
@@ -203,8 +195,7 @@ READY GPIO is acquired unless `--ready-gpio` is supplied.
 
 The Rust application detects Pi 3 versus Pi 4, applies the matching runtime
 overlay, loads the module, opens `/dev/bsc-target0`, and removes the module and
-overlay on ordinary exit. Commands below use `./target/release/target-driver`;
-Raspberry Pi OS users may substitute `./prebuilt/aarch64/target-driver`.
+overlay on ordinary exit. Commands below use `./target/release/target-driver`.
 
 For write-only peripherals such as displays, use receive-only mode. The target
 ACKs controller writes and drains complete transactions without queueing reply
@@ -232,9 +223,6 @@ Select SSD1306 explicitly when needed:
 ```sh
 sudo -E ./target/release/virtual-display --display=ssd1306 0x3c ./kernel
 ```
-
-Raspberry Pi OS ARM64 users may substitute
-`./prebuilt/aarch64/virtual-display` for the locally built executable.
 
 The display mode defaults to address `0x3c`, so the explicit address can be
 omitted. It requires the SDL2 runtime; building it requires `libsdl2-dev`.
@@ -348,9 +336,6 @@ With the target responder running, invoke this on the controller:
   0x13 \
   /dev/i2c-1
 ```
-
-On Raspberry Pi OS, the equivalent checked-in executable is
-`./prebuilt/aarch64/controller-long`.
 
 The controller writes one message, waits 20 ms for userspace to queue a reply,
 then reads `ACK: ` followed by the original message. Requests may contain up to
