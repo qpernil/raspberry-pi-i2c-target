@@ -249,7 +249,7 @@
   "bsc_off_control": "Service stopped, /dev/bsc-target0 absent, GPIO18/19 input. Level-only READY toggles still reproduced write EREMOTEIO. Original service restored afterwards.",
   "controller_irq_control": "GPIO22 unclaimed input with pull-up. 100 READY level cycles with no bus traffic produced no GPIO IRQ counter increments.",
   "scope_limit": "The direction test hook confirmed Stop, but bulk waveform export timed out; subsequent rearm attempt left scope Ready. Original earlier paired-failure waveforms remain preserved in fair-pqc evidence.",
-  "interpretation": "The connected-disconnected-reconnected level-toggle comparison fails after 8 successful echoes, passes all 500 (1,449,901 payload bytes over 7,153 GPIO cycles), then fails after 67 successful echoes (674 GPIO cycles). The reconnected request-write failure has EREMOTEIO (121) and an 11 us lock wait. The failures track the connected READY path in this finite reproduction. Wire coupling, controller pad/input, and ground/probe effects remain unresolved; this does not qualify concurrent authenticated PQC traffic. Follow-up failures persist with C3 tip removed, READY breadboard contacts bypassed, and controller GPIO24 used instead of GPIO22. GPIO22 specifically, the C3 tip and breadboard contacts are not required for this finite reproduction. Other common electrical paths remain unresolved.",
+  "interpretation": "The connected-disconnected-reconnected level-toggle comparison fails after 8 successful echoes, passes all 500 (1,449,901 payload bytes over 7,153 GPIO cycles), then fails after 67 successful echoes (674 GPIO cycles). The reconnected request-write failure has EREMOTEIO (121) and an 11 us lock wait. The failures track the connected READY path in this finite reproduction. Wire coupling, controller pad/input, and ground/probe effects remain unresolved; this does not qualify concurrent authenticated PQC traffic. Follow-up failures persist with C3 tip removed, READY breadboard contacts bypassed, and controller GPIO24 used instead of GPIO22. GPIO22 specifically, the C3 tip and breadboard contacts are not required for this finite reproduction. Other common electrical paths remain unresolved. A correlated hardware-single capture locates lost arbitration on request byte 2604: expected 0x9D, observed eight data bits 0x9C, then no ACK clock. The source of the unexpected low remains unresolved.",
   "gpio_drive_controls": {
     "direction": "GPIO17 output-low/input toggling emulates the original open-drain electrical states; never actively drives high.",
     "level": "GPIO17 remains output and is driven high/low (push-pull diagnostic, unlike the original open-drain release-high mode).",
@@ -265,7 +265,7 @@
     "probe_retention": "C3 target-side retention requested, not independently verified.",
     "cleanup": "Pulse and temporary connector inactive, GPIO17 input, SDA/SCL ALT3; original service PIDs intact."
   },
-  "updated_at_utc": "2026-10-31T17:13:29.160962+00:00",
+  "updated_at_utc": "2026-10-31T18:15:49.826040+00:00",
   "reconnected_control": {
     "human_confirmed": true,
     "electrical_check": "Controller GPIO22 follows target GPIO17 low after reconnection; returns high after release.",
@@ -276,10 +276,10 @@
     "request_write_us": 54763,
     "cleanup": "Pulse generator and temporary connector inactive; GPIO17 input/high; SDA/SCL ALT3; original service PIDs intact."
   },
-  "next_discriminating_control": "Obtain a hardware-triggered, time-aligned SDA/SCL failure capture while controlling READY loading and the ground return. Keep current direct GPIO24 diagnostic wiring explicit; no further pin move selected.",
+  "next_discriminating_control": "Identify the source of SDA being held low on the expected final 1 bit, with receiver thresholds and probe/ground effects controlled. Current direct GPIO24 wiring remains unchanged.",
   "scope_final_state": {
     "status": "Stop",
-    "record": "Latest export is a subsequent device-info exchange, not the corrupt echo. Earlier confirmed paired-PQC raw evidence is preserved separately."
+    "record": "Hardware-single acquisition of the actual failed echo write, matched to 2604 saved request bytes; native 20 ns excerpt retained."
   },
   "followup_controls_20261031": {
     "controller_source": "12ab7cdc2f581beb6abe36478545b1b5c2267d8f",
@@ -358,5 +358,6 @@
     "scope": "Automatic stop confirmed, but exported SDA/SCL record contains a subsequent 0x06 device-info exchange and no matching corrupted response body. No time-aligned failure waveform is claimed.",
     "limits": "Push-pull diagnostic edges; other scope/ground paths, wire loading, shared controller effects and target output/ground coupling remain unseparated. GPIO24 failure does not eliminate effects shared by multiple controller pins."
   },
+  "correlated_failure_capture": "ready-failure-capture.json",
   "documentation_identifiers": "Hostnames and private device/account identifiers are anonymized; measurement values are unchanged."
 }

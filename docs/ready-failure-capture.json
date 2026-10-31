@@ -1,0 +1,195 @@
+{
+  "recorded_at_utc": "2026-10-31T18:13:48.582031+00:00",
+  "status": "Actual failed write captured and correlated to saved request bytes.",
+  "wiring": "Unchanged: Pi2 GPIO17 physical11 -> controller GPIO24 physical18 direct jumper; C3 tip disconnected, original SDA/SCL and grounds retained.",
+  "workload": "One non-mutating 3133-byte unauthenticated echo per hardware single acquisition; Pi2 GPIO17 high/low pulses, BSC peer otherwise idle. No automatic I2C replay.",
+  "hardware_trigger": {
+    ":TIM:SCAL": "5.00E-02",
+    ":TIM:DEL": "0.00E+00",
+    ":ACQ:MDEP": "25M",
+    ":TRIG:TYPE": "IIC",
+    ":TRIG:IIC:COND": "7ADDRess",
+    ":TRIG:IIC:ADDR": "36",
+    ":TRIG:IIC:ALEN": "7BIT",
+    ":TRIG:IIC:RWB": "WRITe",
+    ":TRIG:IIC:DATA": "1",
+    ":TRIG:IIC:DAT2": "256",
+    ":TRIG:IIC:SCLS": "C1",
+    ":TRIG:IIC:SDAS": "C2",
+    ":TRIG:IIC:SCLT": "1.60E+00",
+    ":TRIG:IIC:SDAT": "1.60E+00"
+  },
+  "clean_capture_validation": {
+    "client": {
+      "sent": 1793467521.6014924,
+      "payload_length": 3133,
+      "request_sha256": "83a9e81e48064710aa87106d2a177316e908e826fecc8c6b4ff0b5716e513c54",
+      "status": 200,
+      "response_length": 3136,
+      "actual_sha256": "0a13af7a9348019dd21461a8271e85604f198fab03c4160acce3eea7bbae1a55",
+      "passed": true,
+      "received": 1793467521.7489033
+    },
+    "request_matches": true,
+    "response_body_matches": true
+  },
+  "pulsed_run": {
+    "passed_before_failure": 5,
+    "failure": {
+      "attempt": 5,
+      "armed": {
+        "status": "Ready",
+        "mode": "SINGle",
+        "at": 1793467655.4686
+      },
+      "client": {
+        "sent": 1793467655.56984,
+        "payload_length": 3133,
+        "request_sha256": "bfb099f4d1f867377e81a81239c331f55a8339ecec8ed1335f5f0f3c57f25957",
+        "status": 503,
+        "response_length": 111,
+        "actual_sha256": "772aee03563ca3b85c8b42f08f421732c346e8444b22523de0fb4c85418e17c4",
+        "passed": false,
+        "error_body": "{\"code\":\"device_transport_error\",\"message\":\"write I2C request: Resource temporarily unavailable (os error 11)\"}",
+        "received": 1793467655.632722
+      },
+      "scope_states": [
+        "Trig'd",
+        "Trig'd",
+        "Ready",
+        "Ready",
+        "Stop"
+      ],
+      "stopped_at": 1793467656.4257941
+    },
+    "first_matching_request_bytes": 2604,
+    "matching_prefix_sha256": "05abe7b2b2d6bec9503a124dd886d3a55dff9b323b4a4349042353b32a9961d3",
+    "request_frame_bytes": 3136,
+    "next_request_byte_index_zero_based": 2604,
+    "expected_next_byte_hex": "9d",
+    "observed_next_data_bits_hex": "9c",
+    "ack_clock_after_next_data_bits": false,
+    "last_clock_seconds_from_record_start": 0.309967418116182,
+    "bus_state_after_failure": "SCL high, SDA low until recovery.",
+    "kernel_error": "i2c_dw_handle_tx_abort: lost arbitration"
+  },
+  "sampling": {
+    "hardware_record_samples": 25000000,
+    "hardware_sample_interval_ns": 20,
+    "saved_full_record_samples_per_channel": 2500000,
+    "saved_full_record_sample_interval_ns": 200,
+    "saved_native_excerpt_samples_per_channel": 50000,
+    "saved_native_excerpt_sample_interval_ns": 20
+  },
+  "limits": "C3 disconnected: no READY-edge timing. Receiver thresholds and probe skew uncalibrated. The native excerpt has no extra SCL rising crossings at illustrative 1.0, 1.3, 1.6 and 2.0 V thresholds in the final 0.5 ms; faster or differently located disturbances are not excluded. This capture does not identify which device holds SDA low or why.",
+  "recovery": {
+    "before": "2: a3    pu | lo // GPIO2 = SDA1\n 3: a3    pu | hi // GPIO3 = SCL1",
+    "pulses": [
+      {
+        "cycle": 1,
+        "sda": "1",
+        "scl": "1"
+      },
+      {
+        "cycle": 2,
+        "sda": "1",
+        "scl": "1"
+      },
+      {
+        "cycle": 3,
+        "sda": "1",
+        "scl": "1"
+      },
+      {
+        "cycle": 4,
+        "sda": "1",
+        "scl": "1"
+      },
+      {
+        "cycle": 5,
+        "sda": "1",
+        "scl": "1"
+      },
+      {
+        "cycle": 6,
+        "sda": "1",
+        "scl": "1"
+      },
+      {
+        "cycle": 7,
+        "sda": "1",
+        "scl": "1"
+      },
+      {
+        "cycle": 8,
+        "sda": "1",
+        "scl": "1"
+      },
+      {
+        "cycle": 9,
+        "sda": "0",
+        "scl": "1"
+      }
+    ],
+    "after_stop": "2: ip    pu | hi // GPIO2 = input\n 3: ip    pu | hi // GPIO3 = input",
+    "restored": "2: a3    pu | hi // GPIO2 = SDA1\n 3: a3    pu | hi // GPIO3 = SCL1"
+  },
+  "artifacts": {
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-00/actual.bin": "0a13af7a9348019dd21461a8271e85604f198fab03c4160acce3eea7bbae1a55",
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-00/expected.bin": "0a13af7a9348019dd21461a8271e85604f198fab03c4160acce3eea7bbae1a55",
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-00/request.bin": "83a9e81e48064710aa87106d2a177316e908e826fecc8c6b4ff0b5716e513c54",
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-01/actual.bin": "975ac4f3cf62e0025c35b4e0b1ae826486810ddd6dd8c824968a132035e92588",
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-01/expected.bin": "975ac4f3cf62e0025c35b4e0b1ae826486810ddd6dd8c824968a132035e92588",
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-01/request.bin": "cbb07fef1858aef6270744b5e45f65e5164c682093bb0997cfc8e940730b760b",
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-02/actual.bin": "0bbc131f039247d87f2462d70e71e8bc11d7d80a77a4d403ffddd8171ae9f9d0",
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-02/expected.bin": "0bbc131f039247d87f2462d70e71e8bc11d7d80a77a4d403ffddd8171ae9f9d0",
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-02/request.bin": "856c45c4a754905ecf5520fac104b4982854baadc7743877692e33fffa178180",
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-03/actual.bin": "d659bf9af57065ee3c05233e9a2389ce96a241034a11294bf1956ec445ef0347",
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-03/expected.bin": "d659bf9af57065ee3c05233e9a2389ce96a241034a11294bf1956ec445ef0347",
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-03/request.bin": "eb50d1d93996a68f18b9c19544cfd0f364a11b1e1006fdc59ad4f1f301bb9017",
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-04/actual.bin": "695755bed581a480fd7da9b6b4c88e9e9f84215555c989a6d77683f727fb7af4",
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-04/expected.bin": "695755bed581a480fd7da9b6b4c88e9e9f84215555c989a6d77683f727fb7af4",
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-04/request.bin": "787caeaf99a5d0aafbaedf7c8eba6a1ca79033fa38c8a5db5c126e8425077611",
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-05/actual.bin": "772aee03563ca3b85c8b42f08f421732c346e8444b22523de0fb4c85418e17c4",
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-05/expected.bin": "7f382f6694b242b48bae55b7c2bc0ecaa331a1b9b9b5d24517faa9d61bda6b5f",
+    "pulse/client-evidence/codex-i2c-single-pulse-20261031-1/attempt-05/request.bin": "bfb099f4d1f867377e81a81239c331f55a8339ecec8ed1335f5f0f3c57f25957",
+    "pulse/native-detail/C1-data.bin": "56cec33a594fd0a6c8643780c528ba8f21078ce21d7fe87bdc2a83f7b83b448f",
+    "pulse/native-detail/C1-preamble.bin": "e984ca9e0b958fc74653eaa6bb5b33316c65a2e286ccb335b9002ccdf0a23ad8",
+    "pulse/native-detail/C2-data.bin": "e16b159d536407bb717f9ad150306cab23f73977c0bea695a212490789add9b3",
+    "pulse/native-detail/C2-preamble.bin": "8597075fd105df1214fa7e01d1d9628b97e7f4b5c8a928df0d3c306e297195ca",
+    "pulse/native-detail/failure-last-byte.png": "03cfee1c599ba2ae503cdac678f9d02624937f4c96c5955b4b332e83099c7a83",
+    "pulse/native-detail/failure-last-byte.svg": "661196971839e38f4e1c67fd73caab2d3943f1d3556e1bb601a432b906564ace",
+    "pulse/waveforms/C1-data.bin": "bc3a743333a23decbdc72d7920d482d41abd04fb94a471bb72d7fc174a440aeb",
+    "pulse/waveforms/C1-preamble.bin": "0d328d50f55da578b90c547a785fc1e26ef9ff7e6d87e408bb01b6370f7612e9",
+    "pulse/waveforms/C2-data.bin": "3418db6b90ae6cee29a4bb3b20385f38ee497e6265e3ade62e9dccc8205aa513",
+    "pulse/waveforms/C2-preamble.bin": "861a825ef90fedc6dd453c1464222b44724680fa84d30a6fcfec7346e4e90c4c",
+    "pulse/waveforms/packet-000.bin": "8785e963bd6d558ba28b24956aea1c8f81413b75c78d87a6b83fe3118eee707e"
+  },
+  "post_recovery_echo_check": {
+    "passed": true,
+    "finished": 1793470418.0049944,
+    "results": [
+      {
+        "serial": "24000001",
+        "completed": 4,
+        "payload_bytes": 18,
+        "elapsed_seconds": 0.007768651998048881,
+        "status": "passed"
+      }
+    ],
+    "first_error": null
+  },
+  "final_state": {
+    "scope": "Stop, failed acquisition retained",
+    "bus": "SDA/SCL high",
+    "pi2_ready": "GPIO17 input/high, direct to controller GPIO24",
+    "peer25_counters": "RX/TX transactions and bytes zero",
+    "diagnostic_jobs": "Stopped",
+    "service_pids": "Production 14122, Pi1 supervisor/worker 3499/3513, Pi2 3106/3119; unchanged by this capture."
+  },
+  "source_revisions": {
+    "controller": "4cc6cf49b22d536b8b75ba3775bca0218e61d029",
+    "target": "602015b11032a67eb62d956a164b4986921ca894",
+    "connector_binary_sha256": "7278bb106a345b569a0d370edf144f43db3f97d7ea19293b19920ff7fae309f8"
+  }
+}
