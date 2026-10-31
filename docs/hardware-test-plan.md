@@ -4,6 +4,23 @@ This plan qualifies the current Raspberry Pi BSC target driver as a long-lived
 character-device endpoint, a receive-only display target, and a queued-response
 target with required active-low READY signaling.
 
+## Explicit recovery qualification
+
+[The wire-protocol-4 validation record](explicit-recovery-validation.json)
+verifies 100 normal echoes with only the initial recovery, 50 echoes with
+intentional abandoned response bytes and the expected explicit recoveries,
+30 concurrent echoes per target, 8176-byte application requests, and reconnects.
+Normal exchanges do not add recoveries. The model also verifies rejection of
+corrupt/partial frames and suppression of late worker results.
+
+The original GPIO-only READY2 pulse control still fails after 78 successful
+Pi1 echoes with write arbitration loss and SDA held low. Pi2 receives no I2C
+commands in that control. BSC remains configured for I2C and READY edge detection
+stays fixed, so their routine mode switches are not required for this reproduction.
+No new time-aligned scope trace is claimed. Low/release bus-clear clocks and STOP,
+then explicit recovery, restore both targets; four echoes per target pass.
+The targets finish active with `CR=0x305`, `FR=0x12`, and idle-high SDA/SCL.
+
 ## Shared-HSM qualification limit
 
 Concurrent full HSM/PQC operation on a shared BSC bus remains unqualified.
