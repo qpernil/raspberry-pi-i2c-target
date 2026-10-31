@@ -220,14 +220,38 @@ receiver thresholds and probe skew are uncalibrated. Recovery with low/release
 clocks and STOP restores idle-high lines; four no-pulse echoes then pass.
 The failed acquisition remains stopped and no uncertain HSM mutation is replayed.
 
+A post-abort output-isolation control identifies the addressed target as the
+held-low source. After a 4,668-byte echo write loses arbitration, disconnecting
+only idle Pi2's GPIO18 SDA output (input mode) leaves SDA low. Restoring Pi2
+ALT3 leaves it low. Disconnecting only addressed Pi1's SDA output raises SDA;
+restoring Pi1 ALT3 pulls it low again. No clocks, READY configuration changes,
+service restarts or physical rewiring occur during those checks. Pi1 then
+reports `FR=0x32` (`RXBUSY=1`, `TXBUSY=0`); idle Pi2 reports `FR=0x12`.
+
+The BSC hardware generates receiver ACKs, so receive-busy does not imply a
+high-impedance SDA output. These observations fit a receive/ACK state waiting for another clock.
+They identify the post-abort holder, not the cause of the original bad bit or
+whether a driver transition or hardware misalignment initiated it. Recovery
+clocks and STOP restore the bus; four subsequent echoes pass and both flag
+registers return to `0x12`. Both SDA muxes are restored; original services
+remain running.
+
+The separate NACK capture's roughly 23 microsecond READY pulse is the intended
+cleanup acknowledgement. Its first cleanup rise overlaps the following
+`0x06` device-info write by about 40 microseconds after that write starts.
+The target logs record the partial echo and complete device-info request;
+this recovery overlap remains distinct from the original arbitration loss.
+
 Diagnostic wiring currently connects Pi2 GPIO17 (pin 11) directly to controller
 GPIO24 (pin 18), with C3 disconnected. The documented normal bench mapping is GPIO22;
 no production configuration was changed. Any subsequent two-target diagnostic must use
 GPIO24 explicitly or restore the physical GPIO22 connection first. Diagnostic
-jobs are stopped. The next measurement should identify the source of the
-unexpected SDA low while controlling receiver thresholds and ground return.
+jobs are stopped. The next measurement should trace receive completion and
+BSC reconfiguration against wire timing to distinguish driver transitions from
+hardware loss of alignment.
 
-See the [correlated failure capture](ready-failure-capture.json) and
+See the [SDA output isolation](sda-output-isolation.json),
+[correlated failure capture](ready-failure-capture.json) and
 [isolation record](ready-signal-isolation.json) for counts, source revisions
 and measurement limits. Concurrent authenticated PQC remains unqualified.
 
