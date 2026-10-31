@@ -8,6 +8,7 @@
  * receive-idle with an empty RX FIFO. A closed device stays electrically idle.
  */
 
+#include <linux/crc32.h>
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/fs.h>
@@ -72,6 +73,11 @@
 
 #define BSC_FIFO_SIZE 16
 #define BSC_MAX_TRANSFER 8192
+/* READY response mode uses wire protocol 4; the character-device ABI is unchanged. */
+#define BSC_WIRE_OVERHEAD 16
+#define BSC_WIRE_REQUEST 1
+#define BSC_WIRE_RECOVER 2
+#define BSC_RECOVERY_REPLY_SIZE 11
 #define BSC_RX_SLOTS 1024
 #define BSC_DEFAULT_POLL_NS 300000
 #define BSC_MIN_POLL_NS 20000
@@ -104,6 +110,9 @@ struct bsc_target {
 	u8 rx_work[BSC_MAX_TRANSFER];
 	size_t rx_work_len;
 	bool rx_overflowed;
+	bool rx_faulted;
+	bool wire_recovered;
+	u64 recoveries;
 	struct bsc_rx_slot *rx_slots;
 	u8 rx_read[BSC_MAX_TRANSFER];
 	u32 rx_head;
@@ -181,6 +190,8 @@ static void bsc_reset_io_locked(struct bsc_target *bsc)
 {
 	bsc->rx_work_len = 0;
 	bsc->rx_overflowed = false;
+	bsc->rx_faulted = false;
+	bsc->wire_recovered = false;
 	bsc->rx_head = 0;
 	bsc->rx_tail = 0;
 	bsc->rx_count = 0;
@@ -231,6 +242,57 @@ static void bsc_refill_tx_locked(struct bsc_target *bsc)
 	bsc_set_interrupts_locked(bsc);
 }
 
+static u32 bsc_wire_u32(const u8 *p)
+{
+	return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3];
+}
+
+static unsigned int bsc_wire_kind(struct bsc_target *bsc)
+{
+	const u8 *p = bsc->rx_work;
+	size_t len = bsc->rx_work_len;
+	u32 payload;
+
+	if (len < BSC_WIRE_OVERHEAD || bsc->rx_overflowed || bsc->rx_faulted ||
+	    memcmp(p, "BSC\x04", 4) || p[5])
+		return 0;
+	payload = ((u32)p[6] << 8) | p[7];
+	if (payload + BSC_WIRE_OVERHEAD != len ||
+	    (crc32_le(~0U, p, len - 4) ^ ~0U) != bsc_wire_u32(p + len - 4))
+		return 0;
+	if (p[4] == BSC_WIRE_RECOVER && !payload)
+		return BSC_WIRE_RECOVER;
+	if (p[4] == BSC_WIRE_REQUEST && payload && bsc->wire_recovered)
+		return BSC_WIRE_REQUEST;
+	return 0;
+}
+
+static void bsc_ack_request_locked(struct bsc_target *bsc)
+{
+	/* Rising-only controller detection latches this request acknowledgement. */
+	bsc_set_ready(bsc, true);
+	udelay(20);
+	bsc_set_ready(bsc, false);
+}
+
+static void bsc_recover_wire_locked(struct bsc_target *bsc)
+{
+	/* Only an explicit recovery may discard an unread hardware serializer. */
+	bsc->tx_len = bsc->tx_loaded = 0;
+	bsc->tx_queued = false;
+	bsc_configure_locked(bsc);
+	memcpy(bsc->tx_data, "\x80\x00\x08" "BSC\x04", 7);
+	memcpy(bsc->tx_data + 7, bsc->rx_work + 8, 4);
+	bsc->tx_len = BSC_RECOVERY_REPLY_SIZE;
+	bsc->tx_loaded = 0;
+	bsc->tx_queued = true;
+	bsc->wire_recovered = true;
+	bsc->recoveries++;
+	bsc_ack_request_locked(bsc);
+	bsc_refill_tx_locked(bsc);
+	bsc_set_ready(bsc, true);
+}
+
 static void bsc_finish_rx_locked(struct bsc_target *bsc)
 {
 	struct bsc_rx_slot *slot;
@@ -239,14 +301,28 @@ static void bsc_finish_rx_locked(struct bsc_target *bsc)
 		return;
 
 	if (bsc->ready_gpio) {
-		bsc->tx_len = bsc->tx_loaded = 0;
-		bsc_configure_locked(bsc);
-		/* Guarantee a cleanup edge even when recovering during computation.
-		 * Controllers arm rising-only GPIO detection before the request.
+		unsigned int kind = bsc_wire_kind(bsc);
+
+		if (kind == BSC_WIRE_RECOVER) {
+			bsc_recover_wire_locked(bsc);
+			goto reset_rx;
+		}
+		if (kind != BSC_WIRE_REQUEST) {
+			/* Never deliver partial, corrupt, legacy or recovery bytes to a worker. */
+			bsc->wire_recovered = false;
+			bsc->stats.rx_dropped++;
+			if (bsc->rx_overflowed)
+				bsc->stats.rx_overruns++;
+			bsc_ack_request_locked(bsc);
+			goto reset_rx;
+		}
+		/* The controller guarantees the preceding reply was fully consumed.
+		 * Normal exchanges leave CR, address, FIFO thresholds and serializer alone.
 		 */
-		bsc_set_ready(bsc, true);
-		udelay(20);
-		bsc_set_ready(bsc, false);
+		bsc->rx_work_len -= BSC_WIRE_OVERHEAD;
+		memmove(bsc->rx_work, bsc->rx_work + 12, bsc->rx_work_len);
+		bsc->tx_len = bsc->tx_loaded = 0;
+		bsc_ack_request_locked(bsc);
 	}
 
 	if (bsc->rx_overflowed) {
@@ -268,16 +344,20 @@ static void bsc_finish_rx_locked(struct bsc_target *bsc)
 		wake_up_interruptible(&bsc->rx_wait);
 	}
 
+reset_rx:
 	bsc->rx_work_len = 0;
 	bsc->rx_overflowed = false;
+	bsc->rx_faulted = false;
 }
 
 static void bsc_service_locked(struct bsc_target *bsc)
 {
 	u32 status = bsc_read(bsc, RSR);
 
-	if (status & RSR_OE)
+	if (status & RSR_OE) {
 		bsc->stats.rx_overruns++;
+		bsc->rx_faulted = true;
+	}
 	if (status & RSR_UE)
 		bsc->stats.tx_underruns++;
 	if (status)
@@ -481,7 +561,8 @@ static int bsc_publish_response_locked(struct bsc_target *bsc,
 		return -EPROTO;
 	}
 	bsc->worker_pending = false;
-	if (bsc->worker_generation != bsc->request_generation ||
+	if (!bsc->wire_recovered ||
+	    bsc->worker_generation != bsc->request_generation ||
 	    bsc->rx_work_len || (bsc_read(bsc, FR) & FR_RXBUSY)) {
 		/* A superseded result is consumed, never published or retried. */
 		bsc->stats.tx_discarded++;
@@ -558,7 +639,7 @@ static long bsc_ioctl(struct file *file, unsigned int command,
 		.fifo_size = BSC_FIFO_SIZE,
 		.max_transfer = BSC_MAX_TRANSFER,
 		.poll_interval_ns = bsc->poll_interval_ns,
-		.reserved = { bsc->ready_gpio != NULL },
+		.reserved = { bsc->ready_gpio != NULL, BSC_TARGET_WIRE_VERSION },
 	};
 	struct bsc_target_stats stats;
 	unsigned long flags;
@@ -576,6 +657,7 @@ static long bsc_ioctl(struct file *file, unsigned int command,
 	case BSC_TARGET_IOC_CLEAR_STATS:
 		spin_lock_irqsave(&bsc->lock, flags);
 		memset(&bsc->stats, 0, sizeof(bsc->stats));
+		bsc->recoveries = 0;
 		spin_unlock_irqrestore(&bsc->lock, flags);
 		return 0;
 	default:
@@ -599,17 +681,19 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr,
 {
 	struct bsc_target *bsc = dev_get_drvdata(dev);
 	struct bsc_target_stats stats;
+	u64 recoveries;
 	unsigned long flags;
 
 	spin_lock_irqsave(&bsc->lock, flags);
 	stats = bsc->stats;
+	recoveries = bsc->recoveries;
 	spin_unlock_irqrestore(&bsc->lock, flags);
 
 	return sysfs_emit(buffer,
 		"rx_transactions=%llu rx_bytes=%llu rx_overruns=%llu "
 		"rx_dropped=%llu tx_transactions=%llu tx_bytes=%llu "
 		"tx_underruns=%llu tx_discarded=%llu interrupts=%llu "
-		"timer_runs=%llu\n",
+		"timer_runs=%llu recoveries=%llu\n",
 		(unsigned long long)stats.rx_transactions,
 		(unsigned long long)stats.rx_bytes,
 		(unsigned long long)stats.rx_overruns,
@@ -619,7 +703,8 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr,
 		(unsigned long long)stats.tx_underruns,
 		(unsigned long long)stats.tx_discarded,
 		(unsigned long long)stats.interrupts,
-		(unsigned long long)stats.timer_runs);
+		(unsigned long long)stats.timer_runs,
+		(unsigned long long)recoveries);
 }
 static DEVICE_ATTR_RO(stats);
 

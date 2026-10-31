@@ -28,10 +28,10 @@ also verifies that two newer requests replace the pending slot and suppress
 the old result: the counters record one pending replacement and one discarded
 worker response. The C model covers the same ownership and FIFO transitions.
 
-The Linux controller arms rising-only GPIO detection for cleanup, then falling-only
-for the response. This avoids the deferred both-edge handler classifying an
-interrupt using a pin level that has already changed again. No post-read
-completion inference, fallback stream, guard byte or drain delay is used.
+The Linux controller retains rising-only GPIO detection for request acceptance
+and uses bounded level polling for response readiness. Wire protocol 4 requires
+explicit recovery on reconnect or after an incomplete exchange; normal requests
+do not purge or reconfigure BSC. See [the transport contract](response-transport.md).
 
 The receive-only display parser and launcher tests cover partial updates,
 merged records, and arbitrary read splits. Producer/consumer qualification in
