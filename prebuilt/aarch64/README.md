@@ -3,15 +3,9 @@
 Hostnames and device/account identifiers below are illustrative; replace them with your own configured values.
 
 These are release builds of the five crate-dependency-free Rust programs.
-They contain no kernel module or Device Tree overlay. Builds use `build-host`,
-Ubuntu 26.04.1 LTS ARM64, with glibc 2.43.
-
-`virtual-display` is built from clean source commit
-`3ad57cb526d07f9a9deb3ce7e53638ba3d7e0bb2` with Rust/Cargo 1.99.0. It supports
-partial SSD1306 rectangles and SH1106 range updates encoded with native column
-commands, with bounded rendering during continuous partial traffic.
-The other four tools are built from clean source commit
-`925d083e4969d4f19acf79fc3cdb13fda4cab512` with Rust/Cargo 1.98.1.
+They contain no kernel module or Device Tree overlay. All five are built from
+clean source commit `5c8939fdf0e594ba0b782e17ec22d729dfc2040d` on
+`build-host`, Ubuntu 26.04.1 LTS ARM64, with Rust 1.99.1, Cargo 1.99.1, and glibc 2.43.
 
 | File | Purpose | Maximum required glibc |
 | --- | --- | --- |
@@ -31,6 +25,6 @@ Verify them before use:
 On a capable ARM64 machine, rebuild with `cargo build --release --locked --bins`.
 Build the C kernel module locally on each target with `make -C kernel`; kernel
 modules and overlays are not distributed as prebuilts. Build Rust artifacts on
-build-host rather than the memory-constrained Raspberry Pi 1 and 2 lab hosts,
+`build-host` rather than the memory-constrained `i2c-target-1` and `i2c-target-2`,
 then publish the binaries, checksums and provenance through the canonical Git
 repository and deploy through Git.
