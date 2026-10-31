@@ -47,7 +47,9 @@ exchange before another command, the controller sends a kind-2 frame with empty
 payload and a fresh token. It holds the bus lock for the whole recovery exchange.
 The driver invalidates older work, purges the old FIFO/serializer, restores BSC
 configuration, and returns `80 00 08 42 53 43 04` followed by the four-byte token.
-The controller consumes and verifies all 11 bytes before any application request.
+READY remains released for at least 20 microseconds between the recovery
+acknowledgment and response assertion so the controller can latch the rising
+edge. The controller consumes and verifies all 11 bytes before any application request.
 The recovery control frame never reaches an HSM worker. Generation checks discard
 a late result from an older worker without replaying its operation.
 

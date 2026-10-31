@@ -289,6 +289,8 @@ static void bsc_recover_wire_locked(struct bsc_target *bsc)
 	bsc->wire_recovered = true;
 	bsc->recoveries++;
 	bsc_ack_request_locked(bsc);
+	/* Let the physical rising acknowledgment latch before response assertion. */
+	udelay(20);
 	bsc_refill_tx_locked(bsc);
 	bsc_set_ready(bsc, true);
 }

@@ -55,7 +55,7 @@ static u8 fifo[16], serializer, input[8192];
 static unsigned count, head, resets, input_len, input_pos, acks;
 static bool occupied, ready_asserted, rx_busy, bus_locked;
 static bool inject_rx_tail;
-static unsigned tail_delay;
+static unsigned tail_delay, recovery_high_delays;
 static u8 tail_value;
 static u32 bsc_read(struct bsc_target *bsc, u32 reg) {
     (void)bsc;
@@ -92,7 +92,7 @@ static void bsc_set_ready(struct bsc_target *bsc, bool ready) {
     if (!ready) { assert(bus_locked && !occupied && !count); acks++; }
     ready_asserted = ready;
 }
-static void udelay(unsigned delay) { assert(delay == 20); }
+static void udelay(unsigned delay) { assert(delay == 20); if (!ready_asserted) recovery_high_delays++; }
 static void wake_up_interruptible(int *wait) { (void)wait; }
 """
 tests = r"""
@@ -108,18 +108,20 @@ static void wire_input(const u8 *payload, unsigned len, bool recovery) {
 }
 static void receive(struct bsc_target *bsc, u8 command) {
     bus_locked = true; wire_input(&command, 1, false);
-    unsigned before = acks, reset_before = resets;
+    unsigned before = acks, reset_before = resets, high_before = recovery_high_delays;
     bsc_service_locked(bsc);
     assert(acks == before + 1 && !ready_asserted && !occupied && !count);
     assert(resets == reset_before && "normal receive must not reset BSC");
+    assert(recovery_high_delays == high_before);
     bus_locked = false;
 }
 static u8 clock_byte(struct bsc_target *bsc);
 static void recover(struct bsc_target *bsc) {
     bus_locked = true; wire_input(NULL, 0, true);
-    unsigned before = resets;
+    unsigned before = resets, high_before = recovery_high_delays;
     bsc_service_locked(bsc);
     assert(resets == before + 1 && bsc->wire_recovered);
+    assert(recovery_high_delays == high_before + 1 && "recovery ACK must remain released before response assertion");
     const u8 reply[] = {0x80, 0, 8, 'B', 'S', 'C', 4, 0x12, 0x34, 0x56, 0x78};
     for (unsigned i = 0; i < sizeof(reply); i++) assert(clock_byte(bsc) == reply[i]);
     assert(!occupied && !count);
