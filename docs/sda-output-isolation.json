@@ -1,0 +1,188 @@
+{
+  "recorded_at_utc": "2026-10-31T18:56:09.762210+00:00",
+  "wiring": "Unchanged direct Pi2 GPIO17/pin11 -> controller GPIO24/pin18; C3 disconnected; SDA/SCL/grounds retained.",
+  "traffic": "Only target 0x24/Pi1 receives non-mutating echoes. Pi2 remains connected but receives no I2C commands; its READY GPIO17 is manually driven high/low (push-pull diagnostic).",
+  "failure": {
+    "sent": 1793472143.7482264,
+    "payload_length": 4668,
+    "request_sha256": "bf68d893920d04e68c4f373dedaa16b052f9c53ad611adfdd7a58b2c46af9334",
+    "status": 503,
+    "response_length": 111,
+    "actual_sha256": "772aee03563ca3b85c8b42f08f421732c346e8444b22523de0fb4c85418e17c4",
+    "passed": false,
+    "error_body": "{\"code\":\"device_transport_error\",\"message\":\"write I2C request: Resource temporarily unavailable (os error 11)\"}",
+    "received": 1793472143.809514
+  },
+  "scope_limit": "The 4668-byte stuck-low reproduction did not trigger the hardware single acquisition; no new byte-correlated transient waveform is claimed for this episode. The earlier correlated capture remains in ready-failure-capture.json.",
+  "method": "No physical rewiring or clocks. Temporarily set only each target GPIO18 (SDA) to input, then restore ALT3; READY configuration and services left untouched. Unaddressed Pi2 tested first.",
+  "output_isolation": [
+    {
+      "host": "raspberrypi-2",
+      "bus_before_sda": "0",
+      "sda_with_output_disconnected": [
+        "0",
+        "0",
+        "0"
+      ],
+      "sda_after_alt3_restored": [
+        "0",
+        "0",
+        "0"
+      ],
+      "scl_remained_high": true
+    },
+    {
+      "host": "raspberrypi-1",
+      "bus_before_sda": "0",
+      "sda_with_output_disconnected": [
+        "1",
+        "1",
+        "1"
+      ],
+      "sda_after_alt3_restored": [
+        "0",
+        "0",
+        "0"
+      ],
+      "scl_remained_high": true
+    }
+  ],
+  "before_recovery_status": {
+    "raspberrypi-1": {
+      "physical_base": "0x3f214000",
+      "read_only": true,
+      "DR_not_read": true,
+      "registers_hex": {
+        "RSR": "0x0",
+        "SLV": "0x24",
+        "CR": "0x305",
+        "FR": "0x32",
+        "IFLS": "0x1c",
+        "IMSC": "0xd",
+        "MIS": "0x0"
+      },
+      "flags": {
+        "TXBUSY": false,
+        "RXFE": true,
+        "TXFE": true,
+        "RXBUSY": true,
+        "TXFLEVEL": 0,
+        "RXFLEVEL": 0
+      }
+    },
+    "raspberrypi-2": {
+      "physical_base": "0x3f214000",
+      "read_only": true,
+      "DR_not_read": true,
+      "registers_hex": {
+        "RSR": "0x0",
+        "SLV": "0x25",
+        "CR": "0x305",
+        "FR": "0x12",
+        "IFLS": "0x1c",
+        "IMSC": "0xd",
+        "MIS": "0x0"
+      },
+      "flags": {
+        "TXBUSY": false,
+        "RXFE": true,
+        "TXFE": true,
+        "RXBUSY": false,
+        "TXFLEVEL": 0,
+        "RXFLEVEL": 0
+      }
+    }
+  },
+  "register_read_limit": "Status read after SDA mux-isolation checks were restored, not at the original bad bit. Only RSR/SLV/CR/FR/IFLS/IMSC/MIS read through a read-only map; FIFO DR not read and registers not written.",
+  "conclusion": "Pi1, the addressed target, is the post-abort SDA-low holder in this reproduction. Disconnecting only Pi2 SDA output has no effect; disconnecting only Pi1 SDA output raises the bus, and restoring Pi1 ALT3 pulls it low again. Pi1 reports RXBUSY=1/TXBUSY=0, while Pi2 is idle. This identifies the held-low output after the abort; it does not identify what initiated loss of alignment or prove software versus hardware causation.",
+  "recovery": {
+    "before": "2: a3    pu | lo // GPIO2 = SDA1\n 3: a3    pu | hi // GPIO3 = SCL1",
+    "clocks": [
+      {
+        "cycle": 1,
+        "sda_while_scl_low": "1",
+        "sda_while_scl_high": "1"
+      },
+      {
+        "cycle": 2,
+        "sda_while_scl_low": "1",
+        "sda_while_scl_high": "1"
+      },
+      {
+        "cycle": 3,
+        "sda_while_scl_low": "1",
+        "sda_while_scl_high": "1"
+      },
+      {
+        "cycle": 4,
+        "sda_while_scl_low": "1",
+        "sda_while_scl_high": "1"
+      },
+      {
+        "cycle": 5,
+        "sda_while_scl_low": "1",
+        "sda_while_scl_high": "1"
+      },
+      {
+        "cycle": 6,
+        "sda_while_scl_low": "1",
+        "sda_while_scl_high": "1"
+      },
+      {
+        "cycle": 7,
+        "sda_while_scl_low": "1",
+        "sda_while_scl_high": "1"
+      },
+      {
+        "cycle": 8,
+        "sda_while_scl_low": "1",
+        "sda_while_scl_high": "1"
+      },
+      {
+        "cycle": 9,
+        "sda_while_scl_low": "0",
+        "sda_while_scl_high": "0"
+      }
+    ],
+    "after_stop": "2: ip    pu | hi // GPIO2 = input\n 3: ip    pu | hi // GPIO3 = input",
+    "restored": "2: a3    pu | hi // GPIO2 = SDA1\n 3: a3    pu | hi // GPIO3 = SCL1"
+  },
+  "recovery_check": {
+    "passed": true,
+    "finished": 1793472565.4195719,
+    "results": [
+      {
+        "serial": "24000001",
+        "completed": 4,
+        "payload_bytes": 18,
+        "elapsed_seconds": 0.00804901299852645,
+        "status": "passed"
+      }
+    ],
+    "first_error": null
+  },
+  "final_state": {
+    "scope": "Stop",
+    "bus": "SDA/SCL high",
+    "both_sda_pins": "GPIO18 ALT3 restored",
+    "services": "Original processes, profiles and binaries unchanged; no service restart",
+    "after_recovery_FR": {
+      "raspberrypi-1": "0x12",
+      "raspberrypi-2": "0x12"
+    },
+    "peer25_transactions": "RX/TX counters remain zero",
+    "diagnostics": "Stopped"
+  },
+  "ready_trace": {
+    "record": "Separate NACK episode: partial 111-byte echo write, STOP, then 0x06 device-info write/read to 0x24.",
+    "cleanup_ack_low_us": 22.8,
+    "first_cleanup_rise_after_next_write_start_us": 40.0,
+    "first_cleanup_rise_before_next_write_stop_us": 55.6,
+    "interpretation": "The short forced-low pulse is intentional cleanup acknowledgement. The first rising cleanup edge overlaps the following device-info write; target logs record partial echo and complete device-info requests, consistent with delayed old-request cleanup. This is a separate recovery-timing concern, not proof of the original arbitration-loss cause.",
+    "evidence": "batch2/pulse/waveforms/decoded.json and ready-edges.json; saved scope decoder screenshot double-ready-display.png"
+  },
+  "source_revisions": {
+    "target": "70126a581acc942e1527657b856093582a90e144",
+    "controller": "cea67c7037cd79cf759d3ec4d5faf3b727660811"
+  }
+}

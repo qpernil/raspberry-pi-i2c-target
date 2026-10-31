@@ -276,7 +276,7 @@
     "request_write_us": 54763,
     "cleanup": "Pulse generator and temporary connector inactive; GPIO17 input/high; SDA/SCL ALT3; original service PIDs intact."
   },
-  "next_discriminating_control": "Identify the source of SDA being held low on the expected final 1 bit, with receiver thresholds and probe/ground effects controlled. Current direct GPIO24 wiring remains unchanged.",
+  "next_discriminating_control": "Trace addressed-target receive completion and BSC enable/reset/reconfiguration against SDA/SCL timing; post-abort SDA holder is Pi1 but the initiating cause remains unproven.",
   "scope_final_state": {
     "status": "Stop",
     "record": "Hardware-single acquisition of the actual failed echo write, matched to 2604 saved request bytes; native 20 ns excerpt retained."
@@ -358,5 +358,6 @@
     "scope": "Automatic stop confirmed, but exported SDA/SCL record contains a subsequent 0x06 device-info exchange and no matching corrupted response body. No time-aligned failure waveform is claimed.",
     "limits": "Push-pull diagnostic edges; other scope/ground paths, wire loading, shared controller effects and target output/ground coupling remain unseparated. GPIO24 failure does not eliminate effects shared by multiple controller pins."
   },
-  "correlated_failure_capture": "ready-failure-capture.json"
+  "correlated_failure_capture": "ready-failure-capture.json",
+  "sda_output_isolation": "sda-output-isolation.json"
 }
