@@ -202,22 +202,32 @@ shared controller effects and target output/ground coupling remain unresolved.
 The I2C diagnostic sources and loaded target module match the earlier controls;
 other dependency/binary changes limit direct comparisons across the lab reboot.
 
-Lost arbitration can leave SDA low. The affected target service was restarted
-with the same profile, binary and state path; low/release recovery clocks and a
-STOP restored bus idle, followed by the passing baseline. No uncertain HSM
-mutation was replayed. The latest scope-assisted run confirmed Stop, but the
-export contains a subsequent device-info exchange rather than the corrupt
-reply. No new time-aligned failure waveform is claimed.
+A byte-correlated capture uses hardware single acquisition, triggered on an
+I2C write to address `0x24` with first data byte `0x01` (echo). Each arm sends
+one 3,133-byte echo, preventing later device-info traffic from replacing the
+record. The clean capture matches the complete saved request and response body.
+With READY pulsing, five echoes pass and the sixth fails with request-write
+`EAGAIN` and kernel lost arbitration. Its scope record matches the first 2,604
+saved request bytes. The next byte (zero-based request offset 2,604) should be
+`0x9D`; the wire presents eight data bits `0x9C`, then clocks stop before ACK.
+SDA remains low while SCL stays high. A native 20 ns excerpt preserves that bit.
+
+This establishes the actual on-wire failure, but not which device holds SDA
+low or why. C3 remains disconnected, so no READY-edge timing is available;
+receiver thresholds and probe skew are uncalibrated. Recovery with low/release
+clocks and STOP restores idle-high lines; four no-pulse echoes then pass.
+The failed acquisition remains stopped and no uncertain HSM mutation is replayed.
 
 Diagnostic wiring currently connects Pi2 GPIO17 (pin 11) directly to controller
 GPIO24 (pin 18), with C3 disconnected. The documented normal bench mapping is GPIO22;
 no production configuration was changed. Any subsequent two-target diagnostic must use
 GPIO24 explicitly or restore the physical GPIO22 connection first. Diagnostic
-jobs are stopped. The next measurement should correlate the actual failure
-with SDA/SCL while controlling READY loading and ground return.
+jobs are stopped. The next measurement should identify the source of the
+unexpected SDA low while controlling receiver thresholds and ground return.
 
-See the [isolation record](ready-signal-isolation.json) for counts, source
-revisions and measurement limits. Concurrent authenticated PQC remains unqualified.
+See the [correlated failure capture](ready-failure-capture.json) and
+[isolation record](ready-signal-isolation.json) for counts, source revisions
+and measurement limits. Concurrent authenticated PQC remains unqualified.
 
 ## Shared-bus concurrency
 
