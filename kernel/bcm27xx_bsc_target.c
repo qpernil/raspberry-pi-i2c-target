@@ -104,6 +104,7 @@ struct bsc_target {
 	u8 rx_work[BSC_MAX_TRANSFER];
 	size_t rx_work_len;
 	bool rx_overflowed;
+	u64 recoveries;
 	struct bsc_rx_slot *rx_slots;
 	u8 rx_read[BSC_MAX_TRANSFER];
 	u32 rx_head;
@@ -231,6 +232,14 @@ static void bsc_refill_tx_locked(struct bsc_target *bsc)
 	bsc_set_interrupts_locked(bsc);
 }
 
+static void bsc_ack_request_locked(struct bsc_target *bsc)
+{
+	/* Rising-only controller detection latches this request acknowledgement. */
+	bsc_set_ready(bsc, true);
+	udelay(20);
+	bsc_set_ready(bsc, false);
+}
+
 static void bsc_finish_rx_locked(struct bsc_target *bsc)
 {
 	struct bsc_rx_slot *slot;
@@ -239,14 +248,11 @@ static void bsc_finish_rx_locked(struct bsc_target *bsc)
 		return;
 
 	if (bsc->ready_gpio) {
-		bsc->tx_len = bsc->tx_loaded = 0;
-		bsc_configure_locked(bsc);
-		/* Guarantee a cleanup edge even when recovering during computation.
-		 * Controllers arm rising-only GPIO detection before the request.
+		/* Complete replies are consumed by the controller. Abandonment requires
+		 * an explicit owner-requested recovery ioctl, never a receive-time reset.
 		 */
-		bsc_set_ready(bsc, true);
-		udelay(20);
-		bsc_set_ready(bsc, false);
+		bsc->tx_len = bsc->tx_loaded = 0;
+		bsc_ack_request_locked(bsc);
 	}
 
 	if (bsc->rx_overflowed) {
@@ -290,6 +296,27 @@ static void bsc_service_locked(struct bsc_target *bsc)
 	if ((bsc_read(bsc, FR) & (FR_RXBUSY | FR_RXFE)) == FR_RXFE)
 		bsc_finish_rx_locked(bsc);
 	bsc_refill_tx_locked(bsc);
+}
+
+static int bsc_recover_response_locked(struct bsc_target *bsc)
+{
+	/* The frontend has read an explicit recovery request. Its controller must
+	 * retain the shared bus lock until the recovery response is consumed.
+	 */
+	bsc_service_locked(bsc);
+	if (!bsc->ready_gpio || !bsc->worker_pending)
+		return -EPROTO;
+	if (bsc->worker_generation != bsc->request_generation ||
+	    bsc->rx_work_len || (bsc_read(bsc, FR) & FR_RXBUSY))
+		return -EAGAIN;
+	bsc->tx_queued = false;
+	bsc->tx_len = bsc->tx_loaded = 0;
+	bsc_configure_locked(bsc);
+	bsc->recoveries++;
+	/* Keep the acknowledgment released before userspace publishes its reply. */
+	bsc_set_ready(bsc, false);
+	udelay(20);
+	return 0;
 }
 
 static irqreturn_t bsc_irq(int irq, void *data)
@@ -558,10 +585,11 @@ static long bsc_ioctl(struct file *file, unsigned int command,
 		.fifo_size = BSC_FIFO_SIZE,
 		.max_transfer = BSC_MAX_TRANSFER,
 		.poll_interval_ns = bsc->poll_interval_ns,
-		.reserved = { bsc->ready_gpio != NULL },
+		.reserved = { bsc->ready_gpio != NULL, BSC_TARGET_CAP_RECOVER },
 	};
 	struct bsc_target_stats stats;
 	unsigned long flags;
+	int ret;
 
 	switch (command) {
 	case BSC_TARGET_IOC_GET_INFO:
@@ -573,9 +601,16 @@ static long bsc_ioctl(struct file *file, unsigned int command,
 		spin_unlock_irqrestore(&bsc->lock, flags);
 		return copy_to_user((void __user *)argument, &stats, sizeof(stats)) ?
 			-EFAULT : 0;
+	case BSC_TARGET_IOC_RECOVER:
+		spin_lock_irqsave(&bsc->lock, flags);
+		ret = bsc->dead || !bsc->active ? -ENODEV :
+			bsc_recover_response_locked(bsc);
+		spin_unlock_irqrestore(&bsc->lock, flags);
+		return ret;
 	case BSC_TARGET_IOC_CLEAR_STATS:
 		spin_lock_irqsave(&bsc->lock, flags);
 		memset(&bsc->stats, 0, sizeof(bsc->stats));
+		bsc->recoveries = 0;
 		spin_unlock_irqrestore(&bsc->lock, flags);
 		return 0;
 	default:
@@ -599,17 +634,19 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr,
 {
 	struct bsc_target *bsc = dev_get_drvdata(dev);
 	struct bsc_target_stats stats;
+	u64 recoveries;
 	unsigned long flags;
 
 	spin_lock_irqsave(&bsc->lock, flags);
 	stats = bsc->stats;
+	recoveries = bsc->recoveries;
 	spin_unlock_irqrestore(&bsc->lock, flags);
 
 	return sysfs_emit(buffer,
 		"rx_transactions=%llu rx_bytes=%llu rx_overruns=%llu "
 		"rx_dropped=%llu tx_transactions=%llu tx_bytes=%llu "
 		"tx_underruns=%llu tx_discarded=%llu interrupts=%llu "
-		"timer_runs=%llu\n",
+		"timer_runs=%llu recoveries=%llu\n",
 		(unsigned long long)stats.rx_transactions,
 		(unsigned long long)stats.rx_bytes,
 		(unsigned long long)stats.rx_overruns,
@@ -619,7 +656,8 @@ static ssize_t stats_show(struct device *dev, struct device_attribute *attr,
 		(unsigned long long)stats.tx_underruns,
 		(unsigned long long)stats.tx_discarded,
 		(unsigned long long)stats.interrupts,
-		(unsigned long long)stats.timer_runs);
+		(unsigned long long)stats.timer_runs,
+		(unsigned long long)recoveries);
 }
 static DEVICE_ATTR_RO(stats);
 

@@ -42,28 +42,22 @@ translation produces the model-specific CPU physical address.
 - Transactions are limited to 8192 bytes.
 
 Response mode requires an active-low, open-drain READY GPIO and driver ABI 3.
-Upgrade the controller, driver and HSM frontend together. Receive-only display
-workloads do not require READY and retain their 1,024-record receive ring.
+The HSM frontend and connector require a recovery-capable driver and coordinated
+updates; other ABI 3 workers retain their byte interface. Receive-only display workloads do not require READY and retain their 1,024-record receive ring.
 
-The controller holds the physical bus lock while writing a complete request.
-The driver invalidates the previous result when new input arrives and clears
-old transmit data after the receive burst ends. It then acknowledges cleanup
-with a deasserting READY edge (physical rising edge). If READY was already
-inactive, a short assertion ensures this edge still exists; the assertion is
-held for 20 µs so the controller GPIO can latch it. During this request phase,
-that pulse is an acknowledgment, not a response. Arm rising-only GPIO detection before writing and discard stale events. After
-acknowledgment, arm falling-only detection and check the current response level.
-A reply arriving before reconfiguration stays asserted; a later reply wakes the
-waiter. Linux both-edge detection may classify an interrupt by sampling the pin
-in its deferred handler, mislabeling a short inactive interval. Single-edge
-selection avoids that ambiguity without extending response timing.
+The [raw exchange and explicit-recovery contract](response-transport.md) preserves
+application bytes and the 8192-byte limit. Normal receives acknowledge acceptance
+and keep BSC enabled in I2C mode without purging or reconfiguration. The HSM
+connector retains rising-only READY detection and polls the response level.
+The shared bus lock covers request acceptance and separately the complete read.
 
-After the acknowledgment the controller releases the bus, waits for the next
-READY assertion, then reacquires the bus to read the exact response length.
-The driver queues only response bytes. READY stays asserted after the read;
-there is no guard byte, fallback marker, drain timeout, or post-read reset.
-The next request clears any leftovers, including abandoned reads. No peripheral
-reset occurs while another target is computing or publishing its response.
+The target application uses `BSC_TARGET_IOC_RECOVER` only for explicit recovery
+after an incomplete exchange or reconnect. The generic driver recognizes no
+wire commands or checksums. The HSM frontend implements its reserved recovery
+operation through this ioctl, outside the HSM core. Existing raw echo clients
+and receive-only streams retain their data formats; clients abandoning replies
+must arrange explicit recovery or a quiescent target restart. Character-device
+ABI 3 gains a recovery capability flag without changing its existing layouts.
 
 One worker executes requests sequentially. With READY, the driver retains only
 one pending request, replacing it when newer input arrives. A worker response
@@ -71,8 +65,9 @@ is published only if it belongs to the latest receive generation; a superseded
 write succeeds but discards its bytes. This cannot undo an executed operation's
 side effects. A controller must not automatically replay uncertain commands.
 A read and its corresponding write belong to one worker; concurrent worker
-reads are not supported. Requests must have a STOP and wait for acknowledgment
-before another request; arbitrary adjacent writes can merge into one record.
+reads are not supported. Requests must have a STOP and wait for acknowledgment.
+An incomplete exchange requires explicit recovery before another normal request;
+arbitrary adjacent writes are unsupported.
 
 The bus lock also covers the entire header/body read. It does not cover HSM
 computation, so targets with separate READY lines can progress concurrently.
@@ -172,8 +167,9 @@ serializer. Direct register tests on Pi 3B+ confirm identical flags after
 reading two of three bytes and after reading the third. A fully consumed
 response can be followed by a fresh response without resetting the peripheral.
 The driver therefore does not infer response completion from FIFO flags.
-It purges FIFO and serializer only at the next request, using `TXFLEVEL + 1`
-disable/enable transitions; the documented BRK does not reliably purge them.
+It purges FIFO and serializer only during explicit recovery, using `TXFLEVEL + 1`
+disable/enable transitions; normal receives do not reset BSC. The documented BRK
+does not reliably purge them.
 
 Run `python3 tests/tx_serializer.py` to exercise the actual C receive, refill,
 and publication functions against the FIFO/serializer model. It covers long
