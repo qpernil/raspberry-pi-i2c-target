@@ -26,7 +26,7 @@ acknowledges request acceptance with a READY deasserting edge; the following
 assertion announces its response. The controller can release the shared bus
 while the target computes. Normal exchanges keep BSC enabled in I2C mode;
 explicit recovery clears abandoned responses before further normal requests.
-Controllers must implement [wire protocol 4](docs/response-transport.md). See the
+See [explicit recovery](docs/response-transport.md) and the
 [exchange contract](docs/architecture.md#character-device-contract).
 
 Receive-only OLED workloads retain the original two-wire interface and receive
