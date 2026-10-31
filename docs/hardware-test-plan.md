@@ -13,8 +13,8 @@ unchanged and reserves purging for a target-owner ioctl. The C model checks raw
 byte preservation, receive-only backlog, abandoned serializer recovery, refusal
 during active input, late-result suppression and unchanged staged responses.
 HSM frontend and controller tests check the reserved recovery operation. Hardware
-qualification must cover normal traffic, abandoned replies, reconnects and the
-bundled raw echo client before recording deployment as complete.
+checks cover normal traffic, abandoned replies, reconnects and the bundled
+raw controller; the finite results are recorded below.
 
 The original READY2-triggered failure remains an open qualification limit.
 It reproduced with normal BSC control-register writes and controller READY edge
@@ -33,17 +33,22 @@ for the tested configurations and limits.
 
 ## Verified behavior
 
-On build-host with the Pi 3B+ targets `i2c-target-1` and `i2c-target-2`
-(1 GiB RAM each), driver ABI 3 passes 1,000 concurrent
-randomized exchanges per target, with delayed header/body reads and every tenth
-response deliberately left one byte short. The run includes bounded four-core
-load; neither target reports hardware overruns or underruns.
+The coordinated driver, HSM frontend and connector pass the finite raw-byte
+recovery checks in the [validation record](explicit-recovery-validation.json): 100 normal echoes with one
+startup recovery, 50 exchanges with every fifth response deliberately incomplete,
+30 concurrent echoes per target, reconnects, and exact 8192-byte requests/replies
+on both targets. The unchanged `controller-long` works with the committed C echo
+fixture, including an 8192-byte reply. Receive-only test records arrive unchanged.
+Neither path reports overruns or underruns.
 
-All 31 supported vendor YubiHSM cases pass on each target while the peer serves
-continuous byte-exact echo traffic. A two-second injected worker-write delay
-also verifies that two newer requests replace the pending slot and suppress
-the old result: the counters record one pending replacement and one discarded
-worker response. The C model covers the same ownership and FIFO transitions.
+Four-channel scope records cover SCL, SDA and both READY signals. Threshold
+decoding matches the complete 3133-byte echo request and reply in both a steady
+capture and a READY2 pulse-control capture. All ten pulse-control echoes pass;
+this short run does not establish a fix for the intermittent fault. A native
+20 ns excerpt measures SCL at approximately 391 kHz. C3 observes READY2 via the
+breadboard; Pi2 READY is on controller GPIO22/pin 15. Concurrent authenticated
+PQC remains unqualified. Full display application qualification is not repeated
+by the receive-only byte check.
 
 The HSM controller retains rising-only GPIO detection for request acceptance
 and uses response-level polling. It holds bus admission through its entire
@@ -257,13 +262,13 @@ cleanup acknowledgement. Its first cleanup rise overlaps the following
 The target logs record the partial echo and complete device-info request;
 this recovery overlap remains distinct from the original arbitration loss.
 
-Diagnostic wiring currently connects Pi2 GPIO17 (pin 11) directly to controller
-GPIO24 (pin 18), with C3 disconnected. The documented normal bench mapping is GPIO22;
-no production configuration was changed. Any subsequent two-target diagnostic must use
-GPIO24 explicitly or restore the physical GPIO22 connection first. Diagnostic
-jobs are stopped. The next measurement should trace receive completion and
-BSC reconfiguration against wire timing to distinguish driver transitions from
-hardware loss of alignment.
+The historical isolation captures above used controller GPIO24/pin 18 with C3
+disconnected. The active bench mapping is Pi2 GPIO17/pin 11 to controller
+GPIO22/pin 15, with C3 observing READY2 through the breadboard. Pi1 READY uses
+controller GPIO23/pin 16. Diagnostic jobs are stopped. Further root-cause work
+must distinguish unexpected SDA drive from receive/ACK misalignment while
+capturing READY2 with SDA/SCL; the existing finite controls do not separate those
+mechanisms.
 
 See the [SDA output isolation](sda-output-isolation.json),
 [correlated failure capture](ready-failure-capture.json) and
