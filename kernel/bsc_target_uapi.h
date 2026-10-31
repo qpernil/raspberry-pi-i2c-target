@@ -6,6 +6,7 @@
 #include <linux/types.h>
 
 #define BSC_TARGET_ABI_VERSION 3
+#define BSC_TARGET_WIRE_VERSION 4
 #define BSC_TARGET_IOC_MAGIC 'B'
 
 struct bsc_target_info {
