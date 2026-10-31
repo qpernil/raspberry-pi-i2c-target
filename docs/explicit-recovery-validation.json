@@ -1,0 +1,306 @@
+{
+  "recorded_at_utc": "2026-10-31T20:31:13.591103+00:00",
+  "code_revisions": {
+    "target": "4e5af266383f580bc03232096a488e4ed7cd4ac9",
+    "controller": "8b32f150783ab35b2df7f90ba8882cc9241bb29d"
+  },
+  "wire_protocol": 4,
+  "character_device_abi": 3,
+  "bench": {
+    "controller": "build-host, Pi5/RP1, /dev/i2c-1, configured 400kHz",
+    "targets": {
+      "i2c-target-1": "0x24 / 24000001, READY controller GPIO23",
+      "i2c-target-2": "0x25 / 25000002, READY controller GPIO24"
+    },
+    "wiring": "Direct Pi2 GPIO17 -> controller GPIO24; C3 disconnected; existing SDA/SCL/grounds unchanged."
+  },
+  "local_and_linux_tests": {
+    "controller_mac_tests_passed": 67,
+    "controller_linux_i2c_tests_passed": 17,
+    "target_c_model_passed": true,
+    "model_coverage": [
+      "normal receives perform no BSC configuration reset",
+      "staged reads through 8192-byte responses",
+      "explicit recovery clears an abandoned serializer byte",
+      "recovery acknowledgment has a released interval before response assertion",
+      "corrupt, partial, concatenated and legacy frames are rejected",
+      "late worker results cannot replace recovery or newer responses",
+      "receive-only mode retains its unframed interface"
+    ]
+  },
+  "hardware_tests": {
+    "raw_echo": [
+      {
+        "name": "normal",
+        "count": 100,
+        "rc": 0,
+        "out": "PASS 100 exchanges, 136963 payload bytes\nPASS 100 exchanges in 6.42s\n",
+        "err": "",
+        "counter_delta": {
+          "rx_transactions": 100,
+          "rx_bytes": 137263,
+          "rx_overruns": 0,
+          "rx_dropped": 0,
+          "tx_transactions": 100,
+          "tx_bytes": 137263,
+          "tx_underruns": 0,
+          "tx_discarded": 0,
+          "interrupts": 73099,
+          "timer_runs": 22163,
+          "recoveries": 1
+        }
+      },
+      {
+        "name": "abandoned",
+        "count": 50,
+        "rc": 0,
+        "out": "PASS 50 exchanges in 3.18s\n",
+        "err": "",
+        "counter_delta": {
+          "rx_transactions": 50,
+          "rx_bytes": 67848,
+          "rx_overruns": 0,
+          "rx_dropped": 0,
+          "tx_transactions": 50,
+          "tx_bytes": 67848,
+          "tx_underruns": 0,
+          "tx_discarded": 0,
+          "interrupts": 36138,
+          "timer_runs": 11259,
+          "recoveries": 10
+        }
+      }
+    ],
+    "rust_connector": {
+      "phases": [
+        {
+          "phase": "both-targets",
+          "result": {
+            "passed": true,
+            "finished": 1793478336.682928,
+            "results": [
+              {
+                "serial": "25000002",
+                "completed": 30,
+                "payload_bytes": 43086,
+                "elapsed_seconds": 3.8446649869983958,
+                "status": "passed"
+              },
+              {
+                "serial": "24000001",
+                "completed": 30,
+                "payload_bytes": 43086,
+                "elapsed_seconds": 4.029750229001365,
+                "status": "passed"
+              }
+            ],
+            "first_error": null
+          },
+          "boundary": [
+            {
+              "serial": "24000001",
+              "request_bytes": 8176,
+              "response_bytes": 8176,
+              "status": 200,
+              "passed": true
+            },
+            {
+              "serial": "25000002",
+              "request_bytes": 8176,
+              "response_bytes": 8176,
+              "status": 200,
+              "passed": true
+            }
+          ]
+        },
+        {
+          "phase": "reconnect",
+          "result": {
+            "passed": true,
+            "finished": 1793478338.1906888,
+            "results": [
+              {
+                "serial": "24000001",
+                "completed": 4,
+                "payload_bytes": 18,
+                "elapsed_seconds": 0.012746231997880386,
+                "status": "passed"
+              },
+              {
+                "serial": "25000002",
+                "completed": 4,
+                "payload_bytes": 18,
+                "elapsed_seconds": 0.012569823000376346,
+                "status": "passed"
+              }
+            ],
+            "first_error": null
+          },
+          "boundary": null
+        }
+      ],
+      "recovery_counter_contract": "Each open adds one explicit recovery; successful normal exchanges add none.",
+      "last_raw_abandoned_response_recovered_on_rust_open": true
+    },
+    "ready2_pulse": {
+      "traffic": "Pi1 echoes only; Pi2 GPIO17 manually pulsed push-pull. Pi2 READY remains unclaimed by the controller connector.",
+      "result": {
+        "passed": false,
+        "finished": 1793478487.6015184,
+        "results": [
+          {
+            "serial": "24000001",
+            "completed": 78,
+            "payload_bytes": 87920,
+            "elapsed_seconds": 4.221689369998785,
+            "status": "stopped"
+          }
+        ],
+        "first_error": {
+          "serial": "24000001",
+          "index": 78,
+          "payload_length": 4093,
+          "sent": 1793478487.534325,
+          "request_sha256": "f2caf0a70c25b47fdac37231ae06cf41f58de3c97702051a98566f7010a619b3",
+          "status": 503,
+          "received": 1793478487.589595,
+          "response_length": 111,
+          "response_sha256": "772aee03563ca3b85c8b42f08f421732c346e8444b22523de0fb4c85418e17c4",
+          "error": "HTTP status 503",
+          "error_body": "{\"code\":\"device_transport_error\",\"message\":\"write I2C request: Resource temporarily unavailable (os error 11)\"}"
+        }
+      },
+      "recoveries_delta_including_open": 1,
+      "pi2_rx_transaction_delta": 0,
+      "pi2_tx_transaction_delta": 0,
+      "post_abort_pi1_registers": {
+        "RSR": "0x0",
+        "SLV": "0x24",
+        "CR": "0x305",
+        "FR": "0x32",
+        "MIS": "0x0"
+      },
+      "kernel_error": "i2c_dw_handle_tx_abort: lost arbitration",
+      "interpretation": "The original READY2-triggered failure persists with normal BSC control-register changes and controller READY edge reconfiguration removed. Those routine mode changes are not necessary for this reproduction. No initiating electrical or hardware mechanism is established.",
+      "new_time_aligned_scope_capture": false
+    },
+    "post_failure_recovery": {
+      "bus_clear": {
+        "before": "2: a3    pu | lo // GPIO2 = SDA1\n 3: a3    pu | hi // GPIO3 = SCL1",
+        "clocks": [
+          {
+            "cycle": 1,
+            "sda_scl_low": "1",
+            "sda_scl_high": "1"
+          },
+          {
+            "cycle": 2,
+            "sda_scl_low": "1",
+            "sda_scl_high": "1"
+          },
+          {
+            "cycle": 3,
+            "sda_scl_low": "1",
+            "sda_scl_high": "1"
+          },
+          {
+            "cycle": 4,
+            "sda_scl_low": "1",
+            "sda_scl_high": "1"
+          },
+          {
+            "cycle": 5,
+            "sda_scl_low": "1",
+            "sda_scl_high": "1"
+          },
+          {
+            "cycle": 6,
+            "sda_scl_low": "1",
+            "sda_scl_high": "1"
+          },
+          {
+            "cycle": 7,
+            "sda_scl_low": "1",
+            "sda_scl_high": "1"
+          },
+          {
+            "cycle": 8,
+            "sda_scl_low": "1",
+            "sda_scl_high": "1"
+          },
+          {
+            "cycle": 9,
+            "sda_scl_low": "0",
+            "sda_scl_high": "0"
+          }
+        ],
+        "stop_sda": "1",
+        "stop_scl": "1",
+        "restored": "2: a3    pu | hi // GPIO2 = SDA1\n 3: a3    pu | hi // GPIO3 = SCL1"
+      },
+      "reconnect_checks": [
+        {
+          "phase": "post-clear",
+          "result": {
+            "passed": true,
+            "finished": 1793478576.186574,
+            "results": [
+              {
+                "serial": "25000002",
+                "completed": 4,
+                "payload_bytes": 18,
+                "elapsed_seconds": 0.01153078499919502,
+                "status": "passed"
+              },
+              {
+                "serial": "24000001",
+                "completed": 4,
+                "payload_bytes": 18,
+                "elapsed_seconds": 0.01281560399729642,
+                "status": "passed"
+              }
+            ],
+            "first_error": null
+          }
+        }
+      ]
+    }
+  },
+  "deployment": {
+    "method": "Canonical default-branch commits pushed and verified; lab source fast-forwarded through HTTPS Git. C modules built on each Pi, installed with explicit user approval; Rust controller built on build-host. No Rust builds on the Pis.",
+    "loaded_target_build_id": "8d0bb0d16792bee68ad7680bc6fb59df9656484d",
+    "both_module_build_ids_equal": true,
+    "hsm_profiles_and_executables_unchanged": true,
+    "stored_keys_not_modified_by_tests": true
+  },
+  "final_state": {
+    "targets": {
+      "i2c-target-1": {
+        "registers": {
+          "CR": "0x305",
+          "FR": "0x12",
+          "RSR": "0x0"
+        },
+        "service": "MainPID=4936\nActiveState=active"
+      },
+      "i2c-target-2": {
+        "registers": {
+          "CR": "0x305",
+          "FR": "0x12",
+          "RSR": "0x0"
+        },
+        "service": "MainPID=20025\nActiveState=active"
+      }
+    },
+    "bus": "SDA/SCL high, ALT3 restored",
+    "diagnostic_connectors_and_pulse_jobs_stopped": true,
+    "scope_acquisition_untouched": true
+  },
+  "limits": [
+    "Normal/recovery behavior is verified; the original intermittent READY2 failure is not fixed.",
+    "Manual READY2 control uses push-pull diagnostic edges, distinct from normal open-drain publication.",
+    "Concurrent authenticated PQC qualification remains open.",
+    "Maximum application request is 8176 bytes; wire write is 8192 bytes. Responses allow 8192 bytes; hardware echo checks reached 8176 response bytes."
+  ],
+  "documentation_identifiers": "Hostnames and private device/account identifiers are anonymized; measurement values are unchanged."
+}
