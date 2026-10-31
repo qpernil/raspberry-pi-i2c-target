@@ -22,10 +22,11 @@ ring occupies about 8 MiB, keeps the newest traffic when full, and gives slow
 userspace consumers substantial time to catch up.
 
 Request/response mode requires active-low, open-drain READY. A request
-acknowledges transmit cleanup with a READY deasserting edge; the following
+acknowledges request acceptance with a READY deasserting edge; the following
 assertion announces its response. The controller can release the shared bus
-while the target computes. Only actual response bytes are queued, and the
-next request replaces any abandoned response. See the
+while the target computes. Normal exchanges keep BSC enabled in I2C mode;
+explicit recovery clears abandoned responses before further normal requests.
+See [explicit recovery](docs/response-transport.md) and the
 [exchange contract](docs/architecture.md#character-device-contract).
 
 Receive-only OLED workloads retain the original two-wire interface and receive

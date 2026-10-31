@@ -1,0 +1,100 @@
+{
+  "recorded_at_utc": "2026-10-31T21:19:56.951305+00:00",
+  "status": "Coordinated raw-byte recovery deployment verified; intermittent READY2 fault remains unresolved",
+  "source_revisions": {
+    "raspberry-pi-i2c-target": "c0a05df24e8851c71a9ae68d89a874548d49c0e2",
+    "pkcs11rs": "72df4a65460558c400810742cf0acca58c177d83",
+    "virtual-yubihsm": "cc3f9fe6f26c1c3f845069db60a82197d6a54e86"
+  },
+  "frontend_artifact_commit": "7d2efd24f2c118e2426fda96e1ca0022ab71073c",
+  "worker_sha256": "ff2243eb16d1ca671d9fb3f9f991cea74fc1098a3c1b7bf1574241244d30650c",
+  "character_device_abi": 3,
+  "request_limit": 8192,
+  "response_limit": 8192,
+  "normal_request_envelope": false,
+  "recovery": "Target-owner ioctl invoked by an exact HSM frontend control operation; normal receives do not purge",
+  "wiring": {
+    "Pi1": "GPIO17/pin11 -> controller GPIO23/pin16",
+    "Pi2": "GPIO17/pin11 -> controller GPIO22/pin15",
+    "scope": "C1 SCL; C2 SDA; C3 READY2 via breadboard; C4 READY1"
+  },
+  "software_checks": {
+    "Linux_controller_I2C_tests": 16,
+    "Linux_frontend_tests": 6,
+    "target_C_model": "Raw delivery, explicit serializer recovery, active-input refusal, stale-worker suppression, staged reads and receive-only backlog"
+  },
+  "hardware_checks": {
+    "normal_echoes": {
+      "passed": true,
+      "count": 100,
+      "recoveries": 1,
+      "recovery_reason": "Initial connection only"
+    },
+    "abandoned_replies": {
+      "passed": true,
+      "exchanges": 50,
+      "abandon_every": 5,
+      "recoveries": 10,
+      "recovery_reason": "Initial connection and nine in-run follow-up requests; the final abandonment is recovered on connector open"
+    },
+    "concurrent_echoes_per_target": 30,
+    "reconnect_echoes_per_target": 4,
+    "maximum_request_and_response_bytes_per_target": 8192,
+    "unmodified_controller_long": {
+      "passed": true,
+      "target": "Committed C echo fixture matching target-driver reply behavior",
+      "request_sizes": [
+        34,
+        8187
+      ],
+      "response_sizes": [
+        39,
+        8192
+      ],
+      "recoveries": 0
+    },
+    "receive_only": {
+      "passed": true,
+      "records_hex": [
+        "00425343ff",
+        "40010203047e"
+      ],
+      "overruns": 0,
+      "drops": 0
+    },
+    "scope": {
+      "steady_echoes": 1,
+      "READY2_pulsed_echoes": 10,
+      "all_passed": true,
+      "captured_request_and_reply_bytes": 3133,
+      "all_four_channels_exported": true,
+      "both_decoded_captures_match_request_and_reply": true,
+      "native_excerpt_sample_interval_seconds": 1.999999987845058e-08,
+      "measured_SCL_Hz": 390625.00237401214,
+      "limits": "Finite echo checks and uncalibrated scope thresholds; the short pulse run does not establish a root-cause fix"
+    }
+  },
+  "previous_READY2_failure": {
+    "target_source": "4e5af266383f580bc03232096a488e4ed7cd4ac9",
+    "controller_source": "8b32f150783ab35b2df7f90ba8882cc9241bb29d",
+    "completed_before_failure": 78,
+    "error": "Request-write arbitration loss with SDA held low",
+    "relevance": "Normal BSC purges and controller READY edge reconfiguration were already absent; neither is required for this reproduction"
+  },
+  "qualification_limits": [
+    "Concurrent authenticated/PQC shared-bus operation remains unqualified",
+    "Full OLED/SDL application qualification was not repeated; receive-only byte delivery was checked",
+    "Raw unauthenticated protocols cannot detect all silent bit corruption"
+  ],
+  "final_runtime": {
+    "target_services": "active",
+    "SDA_SCL": "idle high",
+    "target_registers": {
+      "CR": "0x305",
+      "FR": "0x12",
+      "RSR": "0x0"
+    },
+    "diagnostic_jobs": "stopped",
+    "scope": "stopped on last pulse-control exchange"
+  }
+}

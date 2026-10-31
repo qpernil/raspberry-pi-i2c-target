@@ -6,6 +6,7 @@
 #include <linux/types.h>
 
 #define BSC_TARGET_ABI_VERSION 3
+#define BSC_TARGET_CAP_RECOVER 1
 #define BSC_TARGET_IOC_MAGIC 'B'
 
 struct bsc_target_info {
@@ -35,5 +36,6 @@ struct bsc_target_stats {
 #define BSC_TARGET_IOC_GET_STATS \
 	_IOR(BSC_TARGET_IOC_MAGIC, 0x01, struct bsc_target_stats)
 #define BSC_TARGET_IOC_CLEAR_STATS _IO(BSC_TARGET_IOC_MAGIC, 0x02)
+#define BSC_TARGET_IOC_RECOVER _IO(BSC_TARGET_IOC_MAGIC, 0x03)
 
 #endif
