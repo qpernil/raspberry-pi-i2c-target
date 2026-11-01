@@ -32,6 +32,8 @@ jobs:
         run: make -C diagnostics/receive-only controller
       - name: Verify pad-control bit preservation
         run: python3 diagnostics/receive-only/pad-control.py --self-test
+      - name: Verify RP1 pad-control bit preservation
+        run: python3 diagnostics/receive-only/rp1-pad-control.py --self-test
       - name: Verify captured-failure replay vector
         run: |
           python3 - <<'PYVECTORS'
