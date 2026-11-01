@@ -178,3 +178,9 @@ Production READY is active-low open-drain, implemented on these Pi3s by output-l
 and input/release states. The fixed-direction pulse fixture instead drives both
 levels. Its rising-edge drive/slew results therefore do not directly characterize
 the production released rise, which depends on pull-up resistance and capacitance.
+
+To test both output controls in one snapshot-checked change, use
+`--set-drive SNAPSHOT --drive-ma 4 --slew-limited`. This sets the saved drive
+field to 4 mA and enables slew limiting while preserving input hysteresis;
+`--restore SNAPSHOT` returns both fields to their original values. Compare
+original, drive-only, combined and restored conditions with identical traffic.
