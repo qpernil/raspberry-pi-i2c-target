@@ -182,3 +182,24 @@ To test both output controls in one snapshot-checked change, use
 field to 4 mA and enables slew limiting while preserving input hysteresis;
 `--restore SNAPSHOT` returns both fields to their original values. Compare
 original, drive-only, combined and restored conditions with identical traffic.
+
+## Controller pad control and per-side matrix
+
+`rp1-pad-control.py` is restricted to the verified Pi5 controller map and GPIO2/3.
+It saves both RP1 pad words with host/model/boot identity and supports
+`--set SNAPSHOT --drive-ma 4 --slew slow` or `--restore SNAPSHOT`. Supported
+strengths are 2, 4, 8 and 12 mA. Only drive and slew fields change; input enable,
+Schmitt hysteresis, pull configuration and output-disable fields are preserved.
+The bus must be quiescent while changing the pair. Schedule an independent
+restore timer before changes and verify both original pad words before cancelling it.
+`--self-test` checks preservation over all 256 pad values, four drive strengths
+and both slew modes without hardware access.
+
+A per-side sweep holds the other boards at their saved values: 16 Pi2 source-bank
+settings (2 through 16 mA with slew limited/unlimited), 16 Pi1 receiver-bank
+settings, and eight Pi5 controller-pair settings. Both SDA/SCL pads receive the
+same controller setting; this is not their independent-pin cross-product or a
+joint cross-product of all three boards. Keep hysteresis enabled, I2C/READY
+functions fixed, and controller READY inputs pulled up. Each setting needs an
+unpulsed byte-integrity baseline and the same bounded READY2 pulse/vector run,
+with zero overrun/drop counters and original values restored on every exit.
