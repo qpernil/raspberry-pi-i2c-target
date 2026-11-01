@@ -28,6 +28,17 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Test transmit state machine
         run: python3 tests/tx_serializer.py
+      - name: Build receive-only diagnostic controller
+        run: make -C diagnostics/receive-only controller
+      - name: Verify captured-failure replay vector
+        run: |
+          python3 - <<'PYVECTORS'
+          import hashlib, runpy
+          frames = list(runpy.run_path("diagnostics/receive-only/generate-vectors.py")["frames"](2000))
+          assert len(frames[12]) == 4096
+          assert hashlib.sha256(frames[12]).hexdigest() == "e1996f7d4b243030f9a0e9c080940e7a45e74296f4e8cc1a71251d0fad3337d9"
+          assert sum(map(len, frames)) < 32 * 1024 * 1024
+          PYVECTORS
       - name: Compile overlays
         run: make -C kernel overlays
 
