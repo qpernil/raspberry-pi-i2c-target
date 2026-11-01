@@ -1,0 +1,361 @@
+{
+  "date": "2026-11-01",
+  "scope": "Finite investigation record; shared-bus physical reliability remains unqualified",
+  "tested_sources": {
+    "raspberry-pi-i2c-target": "fafb418a9b248ea997973a5cd25a881c6a83a9e8",
+    "pkcs11rs": "c8a4e1cf435dfd0ef80a51633cfe1aefe1c7ad62",
+    "virtual-yubihsm": "0c4ddb3c58dcdbf415cab58499e0ed128dec7d2a",
+    "software-key-core": "59a0521b89c5a62e2ebfa522f396b2c2c34a5cb4",
+    "usb-gadget-supervisor": "85fa7397619ac2797aa36b763616dbc66cb234c7"
+  },
+  "production_logic_changes_in_closeout": false,
+  "deployed": {
+    "target_module_sha256": "8f7cd9b2f1e4813d93dd60e99513c951896770d8aa38c8512975621bab45431e",
+    "target_worker_sha256": "ff2243eb16d1ca671d9fb3f9f991cea74fc1098a3c1b7bf1574241244d30650c",
+    "connector_sha256": "cc25114a2c9921618660bf164ea684e3dfddfa24223162859b211f80dc77143c",
+    "connector_features": [
+      "experimental-i2c",
+      "firmware-full"
+    ],
+    "connector_built_from_git": true,
+    "connector_prebuilt_committed": false,
+    "embedded_serial_99000001_enabled": false,
+    "embedded_state_retained": true,
+    "embedded_state_sha256": "1a9d6f09202dcb32f694a5297d03d62149cf101cb470cf20c0a222595c5071d1",
+    "claimed_serials": [
+      "1238075073",
+      "24000001",
+      "25000002",
+      "2545354682"
+    ],
+    "ready1_controller_gpio": 23,
+    "ready2_controller_gpio": 22,
+    "target_ready_gpio": 17,
+    "ready_mode": "active-low low/release, controller inputs pulled up",
+    "pad_override_installed": false,
+    "observed_reboot_defaults": {
+      "Pi3_GPIO0_27": "0x1b: 8mA, unlimited slew, Schmitt enabled",
+      "Pi5_SDA_SCL": "0x7a: 12mA, slow slew, Schmitt enabled, pull-up, input enabled"
+    },
+    "gpio_tuning_resumed": false
+  },
+  "matrix": {
+    "planned_settings": 40,
+    "completed_settings": 17,
+    "source_2mA_unlimited": {
+      "writes": 2000,
+      "passed": true
+    },
+    "source_2mA_limited": {
+      "writes": 2000,
+      "passed": true
+    },
+    "source_4mA_unlimited": {
+      "writes": 2000,
+      "passed": true
+    },
+    "source_4mA_limited": {
+      "writes": 2000,
+      "passed": true
+    },
+    "source_6_through_16mA": "all tested slew combinations failed",
+    "first_receiver_setting": "2mA unlimited failed after 140 successful writes",
+    "excluded_baseline": "RX overflow before next setting; invalid for bit-integrity inference",
+    "controller_sweep_run": false,
+    "status": "stopped at user request; subsequent no-tuning decision supersedes remaining sweep"
+  },
+  "normal_4mA_failure": {
+    "pi1_successful_echoes": 169,
+    "pi2_successful_echoes": 168,
+    "elapsed_seconds": 40.52,
+    "artificial_ready_pulses": false,
+    "failure": "Pi1 request write EAGAIN; arbitration loss and SDA stuck low",
+    "establishes_reliable_setting": false
+  },
+  "recovery_in_place": {
+    "transport_failure": {
+      "passed": false,
+      "finished": 1793563399.502704,
+      "results": [
+        {
+          "serial": "25000002",
+          "completed": 284,
+          "payload_bytes": 738162,
+          "elapsed_seconds": 70.3328876810001,
+          "status": "stopped"
+        },
+        {
+          "serial": "24000001",
+          "completed": 285,
+          "payload_bytes": 777694,
+          "elapsed_seconds": 70.33504091700024,
+          "status": "stopped"
+        }
+      ],
+      "first_error": {
+        "serial": "25000002",
+        "index": 284,
+        "payload_length": 1024,
+        "sent": 1793563399.2705646,
+        "request_sha256": "d5e9b66e21c110c3fe1044fa8d25e4cdba9fec6bfb47d7d74bdc3110b2883257",
+        "status": 503,
+        "received": 1793563399.4852731,
+        "response_length": 118,
+        "response_sha256": "45b4e026fd2473fbbb06996b6e254229d5dd14cad3d6214fa54d4a4a13845bb1",
+        "error": "HTTP status 503",
+        "error_body": "{\"code\":\"device_transport_error\",\"message\":\"read I2C response header: Resource temporarily unavailable (os error 11)\"}"
+      }
+    },
+    "first_fresh_affected": {
+      "serial": "25000002",
+      "label": "immediate-affected",
+      "nonce": "41c7c690825e42c39804699ed7546b70",
+      "sent": 1793563399.5193105,
+      "request_sha256": "a7954ea9ab6077fe46248e7d92f4efcbc03c9062db8d6fe548dffaa05f24504a",
+      "expected_reply_sha256": "57ea182325bb6c774c709fe24824b80682be1387111c7bbe8ba786f107310b5e",
+      "http_status": 503,
+      "reply_sha256": "772aee03563ca3b85c8b42f08f421732c346e8444b22523de0fb4c85418e17c4",
+      "byte_exact": false,
+      "passed": false,
+      "reply_hex": "7b22636f6465223a226465766963655f7472616e73706f72745f6572726f72222c226d657373616765223a2277726974652049324320726571756573743a205265736f757263652074656d706f726172696c7920756e617661696c61626c6520286f73206572726f7220313129227d",
+      "received": 1793563399.5203395,
+      "elapsed_seconds": 0.0010290145874023438,
+      "seconds_after_original_error": 0.03403735160827637
+    },
+    "first_fresh_peer": {
+      "serial": "24000001",
+      "label": "immediate-peer",
+      "nonce": "81aac624502744cbb28ef7473c98e4c4",
+      "sent": 1793563399.5207987,
+      "request_sha256": "3edd5678404b4bc0fcf3cdba8f3d750fe9df3669025c7dc46a62e61f9dc03f90",
+      "expected_reply_sha256": "bf6b294dd8089f1ad5c8a655963d52d8d57e5176835c274a27e13619d057da13",
+      "http_status": 503,
+      "reply_sha256": "6eb9ce58f8773d54be773d07401140ac008afe1df0cecf73fc69b1bfc749d60d",
+      "byte_exact": false,
+      "passed": false,
+      "reply_hex": "7b22636f6465223a22656e64706f696e745f756e617661696c61626c65222c226d657373616765223a2277726974652049324320726571756573743a2052656d6f746520492f4f206572726f7220286f73206572726f722031323129227d",
+      "received": 1793563399.5324352,
+      "elapsed_seconds": 0.011636495590209961,
+      "seconds_after_original_error": 0.03552556037902832
+    },
+    "later_fresh_affected": {
+      "serial": "25000002",
+      "label": "new-command-after-1s",
+      "nonce": "272ca4c1ad7c4889a87a6258d3ee164c",
+      "sent": 1793563400.5332043,
+      "request_sha256": "09057fccd2d4c9a520fcf8135de381559f51e43547273d1ee07e6caebe80c19b",
+      "expected_reply_sha256": "804cb653ccdd773f6ab10c121faba6dc2f3095c0b2941613533c45f47a386ecf",
+      "http_status": 200,
+      "reply_sha256": "804cb653ccdd773f6ab10c121faba6dc2f3095c0b2941613533c45f47a386ecf",
+      "byte_exact": true,
+      "passed": true,
+      "received": 1793563400.5415435,
+      "elapsed_seconds": 0.008339166641235352,
+      "seconds_after_original_error": 1.04793119430542
+    },
+    "continued_echoes": [
+      {
+        "serial": "24000001",
+        "index": 0,
+        "sent": 1793563487.4245756,
+        "status": 200,
+        "byte_exact": true,
+        "passed": true,
+        "received": 1793563487.4334285
+      },
+      {
+        "serial": "25000002",
+        "index": 0,
+        "sent": 1793563487.4334857,
+        "status": 200,
+        "byte_exact": true,
+        "passed": true,
+        "received": 1793563487.4373755
+      },
+      {
+        "serial": "24000001",
+        "index": 1,
+        "sent": 1793563487.4374065,
+        "status": 200,
+        "byte_exact": true,
+        "passed": true,
+        "received": 1793563487.4410563
+      },
+      {
+        "serial": "25000002",
+        "index": 1,
+        "sent": 1793563487.4410837,
+        "status": 200,
+        "byte_exact": true,
+        "passed": true,
+        "received": 1793563487.4447997
+      },
+      {
+        "serial": "24000001",
+        "index": 2,
+        "sent": 1793563487.4448287,
+        "status": 200,
+        "byte_exact": true,
+        "passed": true,
+        "received": 1793563487.4485447
+      },
+      {
+        "serial": "25000002",
+        "index": 2,
+        "sent": 1793563487.4485683,
+        "status": 200,
+        "byte_exact": true,
+        "passed": true,
+        "received": 1793563487.4522672
+      }
+    ],
+    "connector_pid": "5130",
+    "connector_unchanged": true,
+    "all_service_identities_unchanged": {
+      "ubuntu4": true,
+      "raspberrypi-1": true,
+      "raspberrypi-2": true
+    },
+    "recovery_counters": {
+      "raspberrypi-1": {
+        "before": 2,
+        "after": 3
+      },
+      "raspberrypi-2": {
+        "before": 2,
+        "after": 3
+      }
+    },
+    "all_five_devices_available": true,
+    "no_manual_bus_clear_or_restart": true,
+    "interpretation": "The immediate fresh commands failed; a distinct command to the affected target succeeded 1.05 s after the fault and took 8.3 ms. A later check passed three fresh echoes per target. Recovery was observed without restarting the connector or targets. This single episode does not establish recovery from every fault or authenticated-session/PQC recovery.",
+    "other_failure": {
+      "failure_type": "HSM WrongLength error reply: 7f000108, HTTP 200; echo mismatched",
+      "fresh_commands": "Three distinct fresh echoes per target passed with unchanged connector and target service identities",
+      "explicit_recovery_exercised": false,
+      "evidence": "No recovery counter increment; no transport-level error was reported to the connector",
+      "no_manual_intervention": true
+    },
+    "excluded_probe": "20261101T195325Z: monitor interrupted after 1528/1529 successful exchanges; excluded from recovery conclusions."
+  },
+  "object_metadata_preservation": [
+    {
+      "serial": "24000001",
+      "objects_before": 99,
+      "objects_after": 108,
+      "all_prior_metadata_present": true,
+      "missing_prior_metadata": 0,
+      "added_objects": 9,
+      "added_ids": [
+        "7e20",
+        "7e21",
+        "7e22"
+      ],
+      "new_objects_preserved": true
+    },
+    {
+      "serial": "25000002",
+      "objects_before": 21,
+      "objects_after": 30,
+      "all_prior_metadata_present": true,
+      "missing_prior_metadata": 0,
+      "added_objects": 9,
+      "added_ids": [
+        "7e20",
+        "7e21",
+        "7e22"
+      ],
+      "new_objects_preserved": true
+    }
+  ],
+  "inventory_limits": "Subset comparison, not equality. Additional iPhone smoke-test objects are preserved. Sandboxed discovery attempts failed before login; verified inventory uses the existing Secure Enclave credential outside the sandbox. No key creation/deletion in closeout.",
+  "remaining_limits": [
+    "Physical coupling/receiver-local thresholds/probe references uncalibrated",
+    "No statistical failure-rate benefit established for drive or slew settings",
+    "Concurrent authenticated/PQC reliability and post-fault session recovery remain unqualified",
+    "Explicit transport recovery cannot guarantee physical bus release"
+  ],
+  "evidence_location": "Local Codex evidence workspace; raw waveforms/operator scripts are not repository-tracked. No private HSM state is included in these bundles.",
+  "evidence": [
+    {
+      "path": "outputs/minimal-rx-evidence.tar.gz",
+      "bytes": 22532170,
+      "sha256": "5f14b6624c2215661c0b1b80aeec25681908e52865c70d147bba8f392158f82c"
+    },
+    {
+      "path": "outputs/slew-comparison/slew-comparison-evidence.tar.gz",
+      "bytes": 54728222,
+      "sha256": "3275e8b33b34c3e4747a8916122f73c7a548e88b69659975ffa485ba2184f427"
+    },
+    {
+      "path": "outputs/rate-comparison/20261101T163814Z/rate-analysis.json",
+      "bytes": 2311,
+      "sha256": "0b1221c253ffa04325effde289c316f55d9ec4f8e055a14455bb7889f99562d6"
+    },
+    {
+      "path": "outputs/pad-matrix/checkpoint.json",
+      "bytes": 154957,
+      "sha256": "44919d4839091b16840f37f5418d0781f873b88eb2d335700c5267bd721f5667"
+    },
+    {
+      "path": "outputs/production-2ma/20261101T173735Z/results.json",
+      "bytes": 26288,
+      "sha256": "3a582ebfbcee28add6e7d86daf91314c5152296d82077c7e11a1bf7b4cc472b2"
+    },
+    {
+      "path": "outputs/production-4ma-limited/20261101T175225Z/authenticated-inventory-before-result.json",
+      "bytes": 171,
+      "sha256": "f60d1f2ab3a2fe975758a6c1b9e829694c360630e066bd1c8c96c2a3215df306"
+    },
+    {
+      "path": "outputs/production-4ma-normal/normal-4ma-evidence.tar.gz",
+      "bytes": 221154,
+      "sha256": "aab97dd2c7fb6c23d1800f3c62b536f198abb94f6121257530d62c54f936d0eb"
+    },
+    {
+      "path": "outputs/ready2-push-pull/comparison-evidence.tar.gz",
+      "bytes": 586879,
+      "sha256": "98177ae97cd0c91812ec27dccafc9e667ddc1846ef9ad749c8bfe72c475b2cf4"
+    },
+    {
+      "path": "outputs/ready2-push-pull/inverted-ready2-evidence.tar.gz",
+      "bytes": 977914,
+      "sha256": "6aedee0ee91d50a8d4a7862958f8f524590a5fc065b55466cd931653eaf0f040"
+    },
+    {
+      "path": "outputs/boot-pad-settings/20261101T192309Z/summary.json",
+      "bytes": 4466,
+      "sha256": "01b72d7c9064f1097d33d488aa6e936c8c47a87713ebbb72aeb01baf434894cc"
+    },
+    {
+      "path": "outputs/recovery-in-place/recovery-evidence.tar.gz",
+      "bytes": 403945,
+      "sha256": "c44694e19b42e652b44f045ed1794be4031253d43789857e32d27e2f8034b3ea"
+    },
+    {
+      "path": "outputs/production-connector-full/20261101T194121Z/installation.json",
+      "bytes": 9935,
+      "sha256": "6a6f58e16c3fcf44c61b17255f1c3de25ec4290021c593d76bacf940585528b3"
+    },
+    {
+      "path": "outputs/disable-embedded-production/20261101T200736Z/results.json",
+      "bytes": 6013,
+      "sha256": "90deda303bb783d2a427d16e8dfe4e1f9de949cf1dce65b5fad684763974669c"
+    },
+    {
+      "path": "outputs/final-inventory/preservation-result.json",
+      "bytes": 572,
+      "sha256": "6ea8c02419481d0fae4572d171cf56dd29a1c7a12429e947f52952ab5ebd4c3e"
+    },
+    {
+      "path": "outputs/final-closeout/operator-diagnostics-source.tar.gz",
+      "bytes": 87858,
+      "sha256": "7e35af55009f26f68d33eba2b7b61574893cf85b4d02e7a64429552e08f0f015"
+    },
+    {
+      "path": "outputs/final-closeout/operator-source-manifest.json",
+      "bytes": 10263,
+      "sha256": "28b8d7589677f13b337a2e3cd32d5936a741ee530b40bfa5f430c0ef01d9b237"
+    }
+  ]
+}

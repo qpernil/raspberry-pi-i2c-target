@@ -30,8 +30,15 @@ Use the existing Pi3 overlay with address `0x24` and **without** `ready_gpio`.
 Load `bsc_rx_minimal.ko` instead of the production module. Baseline writes must
 arrive byte-for-byte with zero overruns, underruns and capture drops before a
 pulse result can be interpreted. Repeat the same vector sequence and cadence
-with only the Pi2 GPIO17 high/low pulse loop added. Pi2 receives no I2C commands.
+with only the Pi2 GPIO17 low/release pulse loop added for a production-style
+comparison. A fixed-direction high/low loop is a separate push-pull stress control.
+Pi2 receives no I2C commands.
 A passing finite run does not establish that every response path is safe.
+
+The [bench closeout](../../docs/bench-validation-2026-11-01.md) separates these
+controls from production low/release signaling, records the interrupted matrix,
+and specifies the restored, untuned production state. Do not resume pad tuning
+as part of ordinary deployment or service startup.
 
 ## Controller and error capture
 
@@ -72,6 +79,8 @@ controller arbitration loss on write 119, after 118 successful writes. The faili
 request is 2,444 bytes; the first corrupted byte is offset 952 (zero-based), not a
 4,096-byte boundary. There are no RX overruns, underruns or capture drops.
 
+That recorded stimulus actively drives READY2 high and low (push-pull); it
+is an electrical stress control, not the production open-drain waveform.
 The first 952 bytes match. Byte 952 should be `0xf3` (`11110011`); the nominal
 wire data bits are `11110010` (`0xf2`), and Pi1's RX FIFO delivers `0xf9`
 (`11111001`). Inserting an extra high sample early in the intended byte produces
@@ -203,3 +212,48 @@ joint cross-product of all three boards. Keep hysteresis enabled, I2C/READY
 functions fixed, and controller READY inputs pulled up. Each setting needs an
 unpulsed byte-integrity baseline and the same bounded READY2 pulse/vector run,
 with zero overrun/drop counters and original values restored on every exit.
+
+Production-style matrix stimulus must never drive READY2 high. Stop Pi2's target
+owner, set GPIO17 output-low, and alternate `pinctrl set 17 ip pn` (release) with
+`pinctrl set 17 op dl` (pull low), retaining the controller GPIO22 input pull-up.
+Verify both wire endpoints read low when driven and high when released before
+traffic. Direction changes implement the Pi3's software open-drain behavior;
+they are intentional in this fixture. Keep SDA/SCL muxing fixed throughout each
+transfer. Restore production ownership only after the pulse generator stops.
+
+The push-pull capture and its 100 kHz, slew-only and drive-only comparisons remain
+separate evidence. A push-pull fault does not by itself establish that the same
+disturbance occurs under production low/release signaling.
+
+## Export and analyze retained scope records
+
+`siglent-capture.py` exports an already stopped SDS824X HD acquisition over TCP
+5025. It verifies `*IDN?` and stopped state, uses native WORD samples by default,
+and validates every definite-length reply and chunk size. It changes waveform
+export selection, not acquisition or trigger configuration. It refuses a running
+acquisition; stop or capture the desired event separately. An export does not
+prove the initiating fault is present, especially after a delayed software stop.
+
+```sh
+python3 diagnostics/receive-only/siglent-capture.py \
+  --host 192.168.1.91 --output /var/tmp/ready-capture --points 50000
+```
+
+Use `--points 0 --start 0` for the full acquisition; the default selects a centered
+window. `--interval 1` retains the native sample interval. Raw descriptors and
+samples plus `capture.json` are saved to a new directory. Socket-pair tests cover
+fragmented binary payloads, embedded newlines, trailing terminators and truncation.
+
+For C3 edge-triggered READY2 captures saved under a comparison root's immediate
+`rising-*`/`falling-*` subdirectories, run:
+
+```sh
+python3 diagnostics/receive-only/analyze-ready-levels.py /var/tmp/ready-comparison
+```
+
+The analyzer uses two settled 10 microsecond windows, excluding the transition,
+and reports median, RMS about the mean, peak-to-peak, percentile spread and clock
+activity. The approximate 10–90% edge time is sample-quantized. C1=SCL, C2=SDA,
+C3=READY2 and C4=READY1 must be present; trigger slope metadata must describe C3.
+These are voltage/probe-reference observations, not calibrated receiver margins
+or statistical failure-rate measurements.

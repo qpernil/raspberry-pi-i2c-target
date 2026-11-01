@@ -9,7 +9,8 @@
     "normal_CR_reconfiguration": false,
     "response_publication": false,
     "Pi1_READY_operation": false,
-    "RX_service": "IRQ plus 300 us tail timer; FIFO drains, interrupt acknowledgment and error counters only"
+    "RX_service": "IRQ plus 300 us tail timer; FIFO drains, interrupt acknowledgment and error counters only",
+    "READY2_stimulus": "Pi2 GPIO17 fixed-direction push-pull high/low pulse loop; separate electrical stress control, not production open-drain release"
   },
   "wiring": {
     "READY2": "Pi2 GPIO17/pin11 -> controller GPIO22/pin15, unchanged",
