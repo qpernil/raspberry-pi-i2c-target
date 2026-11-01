@@ -112,3 +112,24 @@ scope capture are saved. `--marker-only` exercises the marker without I2C traffi
 Read `/dev/bsc-rx-minimal` only after writes stop and compare it with the vector
 stream. Chunk SCPI waveform exports and verify every returned block length: a
 large native span may be truncated despite the requested point-count readback.
+
+## Reversible slew comparison
+
+On the verified Pi 3B+ map, `pad-control.py` snapshots GPIO0-27 pad fields with
+host/model/boot identity. `--limit-slew SNAPSHOT` clears only the slew-unlimited
+bit; drive strength and input hysteresis are preserved. `--restore SNAPSHOT`
+restores the saved fields with readback verification. The setting is bank-wide,
+so run an original/limited/original comparison with the same other GPIO activity
+quiesced. Schedule an independent restore timer before changing it, and cancel
+the timer only after the original value has been restored and read back.
+
+`--self-test` verifies bit preservation without accessing hardware. `--save PATH`
+creates a new snapshot and refuses to overwrite one. Restriction to the verified
+Pi 3B+ model and same-host/same-boot restoration is intentional.
+
+The raw controller's optional `--snapshot-after N` also marks and stops after
+write N succeeds, before the reply-emulation delay. Its result records the option
+and stores `snapshot-request.bin`; an actual failure still stops and saves
+`failed-request.bin`. This permits like-for-like waveform snapshots when a tested
+setting has no failures. The marker cannot perturb the selected write because
+it is asserted after `write()` completes, and no subsequent writes are sent.
