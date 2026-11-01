@@ -1,0 +1,177 @@
+{
+  "recorded_at_utc": "2026-11-01T12:45:38.779732+00:00",
+  "status": "Receive-only failure reproduced and correlated to native first-error capture; physical coupling path unresolved",
+  "source_commit": "5c8e109998102a73ef6e0a4ab7badb377e4617b7",
+  "fixture": {
+    "module": "bsc_rx_minimal",
+    "CR": "0x205",
+    "TX_enabled": false,
+    "normal_CR_reconfiguration": false,
+    "response_publication": false,
+    "Pi1_READY_operation": false,
+    "RX_service": "IRQ plus 300 us tail timer; FIFO drains, interrupt acknowledgment and error counters only"
+  },
+  "wiring": {
+    "READY2": "Pi2 GPIO17/pin11 -> controller GPIO22/pin15, unchanged",
+    "C1": "SCL",
+    "C2": "SDA",
+    "C3": "READY2",
+    "C4": "Controller error marker on GPIO23 through the existing READY1 lead; Pi1 GPIO17 released as input"
+  },
+  "marker_verification": {
+    "min_V": -0.16666689266761203,
+    "max_V": 3.337499826215207,
+    "falling_edges": 1,
+    "trigger_fraction": 0.5,
+    "native_dt": 1.999999943436137e-09,
+    "native_points": 25000000
+  },
+  "baseline": {
+    "writes": 100,
+    "received_bytes": 142975,
+    "byte_exact": true,
+    "overruns": 0,
+    "underruns": 0,
+    "drops": 0
+  },
+  "pulsed": {
+    "successful_writes": 118,
+    "failing_write_number": 119,
+    "failed_request_bytes": 2444,
+    "failed_request_sha256": "aa2305f08e001b59917b2788d6bfed89862b64b65f659eedd66a62550ed06a49",
+    "errno": 11,
+    "error": "Controller reports lost arbitration; SDA remains low, SCL high",
+    "CR": "0x205",
+    "FR": "0x32",
+    "RSR": "0x0",
+    "received_failed_request_bytes": 953,
+    "overruns": 0,
+    "underruns": 0,
+    "drops": 0,
+    "first_corrupted_request_offset_zero_based": 952,
+    "expected_byte": "0xf3",
+    "wire_data_bits": "11110010",
+    "wire_byte": "0xf2",
+    "Pi1_received_byte": "0xf9",
+    "following_ACK_clock_present": false,
+    "proper_STOP_after_failure": false,
+    "marker_after_write_return_us": 10.759
+  },
+  "scope": {
+    "native_sample_interval_ns": 1.999999943436137,
+    "last_SCL_to_error_marker_us": 46.94799867221988,
+    "READY2_fall_relative_last_SCL_us": -15.353999565759224,
+    "complete_request_start_and_952_matching_bytes_captured": true,
+    "initiating_wrong_bit_and_stuck_bus_captured": true,
+    "clock_threshold_checks": [
+      {
+        "threshold_V": 0.6,
+        "rises": 32,
+        "short_rise_intervals_ns": []
+      },
+      {
+        "threshold_V": 0.8,
+        "rises": 32,
+        "short_rise_intervals_ns": []
+      },
+      {
+        "threshold_V": 1.0,
+        "rises": 32,
+        "short_rise_intervals_ns": []
+      },
+      {
+        "threshold_V": 1.2,
+        "rises": 33,
+        "short_rise_intervals_ns": [
+          21.999999377797508
+        ]
+      },
+      {
+        "threshold_V": 1.6,
+        "rises": 34,
+        "short_rise_intervals_ns": [
+          3.999999886872274,
+          11.999999660616822
+        ]
+      },
+      {
+        "threshold_V": 2.0,
+        "rises": 32,
+        "short_rise_intervals_ns": []
+      },
+      {
+        "threshold_V": 2.5,
+        "rises": 36,
+        "short_rise_intervals_ns": [
+          5.999999830308411,
+          3.999999886872274,
+          5.999999830308411,
+          7.999999773744548
+        ]
+      }
+    ]
+  },
+  "interpretation": {
+    "established": "The failure does not require HSM execution, response publication, transmit enable, Pi1 READY transitions or per-request BSC reconfiguration.",
+    "working_model": "An extra high input sample early in 11110011 yields 11111001 (0xf9); a receiver ACK one nominal clock early explains wire 11110010 (0xf2) and the controller arbitration loss.",
+    "signal_observation": "READY2 falls during an SCL rising edge; SCL becomes non-monotonic and recrosses illustrative thresholds. Disturbances appear simultaneously on SDA and the otherwise released error-marker lead.",
+    "limits": "Probe skew, receiver thresholds, local grounds and the physical coupling path remain uncalibrated. Scope cross-talk/common-reference artifacts have not been separated from the disturbance at Pi1 input. This is not shared-bus qualification."
+  },
+  "measured_low_levels_V": {
+    "controller_data": 0.012499925680458546,
+    "target_ACK": 0.07916659334053655,
+    "after_abort": 0.05416659296800663
+  },
+  "recovery": {
+    "bus_clear": {
+      "before": "2: a3    pu | lo // GPIO2 = SDA1\n 3: a3    pu | hi // GPIO3 = SCL1",
+      "clocks": [
+        [
+          "1",
+          "1"
+        ],
+        [
+          "1",
+          "1"
+        ],
+        [
+          "1",
+          "1"
+        ],
+        [
+          "1",
+          "1"
+        ],
+        [
+          "1",
+          "1"
+        ],
+        [
+          "1",
+          "1"
+        ],
+        [
+          "1",
+          "1"
+        ],
+        [
+          "1",
+          "1"
+        ],
+        [
+          "0",
+          "0"
+        ]
+      ],
+      "after": "2: a3    pu | hi // GPIO2 = SDA1\n 3: a3    pu | hi // GPIO3 = SCL1",
+      "sda": "1",
+      "scl": "1"
+    },
+    "original_services_restored": true,
+    "profiles_and_stored_keys_preserved": true,
+    "diagnostic_units_stopped": true,
+    "scope": "Stopped on the failed acquisition; C4 means error marker in this retained record",
+    "post_restore_echoes_passed_per_target": 4
+  },
+  "next_control": "Verify the SCL disturbance at the receiving Pi with a short local probe ground, then change one READY2 edge/return-path characteristic and repeat the identical fixture."
+}
