@@ -6,6 +6,11 @@ This plan qualifies the current Raspberry Pi BSC target driver as a long-lived
 character-device endpoint, a receive-only display target, and a queued-response
 target with required active-low READY signaling.
 
+The [2026-11-01 bench validation](bench-validation-2026-11-01.md) records the
+finite receive-only, electrical-control and production recovery results. The
+bench uses rebooted pad defaults with no strength/slew override. These controls
+do not establish a reliable shared-bus setting or resolve the physical fault.
+
 ## Explicit recovery qualification
 
 The [raw exchange contract](response-transport.md) keeps normal application data
@@ -37,7 +42,9 @@ A bank-wide Pi2 slew control retains 8 mA drive and input hysteresis while chang
 only the slew bit (`0x1b -> 0x0b -> 0x1b`). All three RX-only pulse runs fail, after
 179, 275 and 52 successful writes respectively. The limited run still loses
 arbitration and leaves SDA low. Each failure tail contains a READY2 rising edge
-during a disturbed SCL rise; both READY2 polarities need investigation. Selected
+during a disturbed SCL rise; both READY2 polarities need investigation. These selected
+receive-only captures use a fixed-direction push-pull READY2 stress stimulus;
+production low/release comparisons must be reported separately. Selected
 READY2 rise times are 6/8/6 ns and SCL backsteps are 0.37/0.22/0.29 V, with 2 ns
 sampling and different edge phases. This does not establish a failure-rate or
 general dip reduction. Original pad fields and both services are restored; four
@@ -143,8 +150,10 @@ Use ABI 3 on both ends, with a separate READY input per target.
    including requests sent while READY is already inactive.
 3. Read three-byte headers separately from payloads, including a one-byte
    payload and long pauses. READY remains asserted after complete reads.
-4. Abandon a payload's final byte, send another request, and verify that the
-   new response contains no stale prefix.
+4. Abandon a payload's final byte, perform the application's explicit recovery
+   operation, then send a fresh request and verify no stale response prefix.
+   A generic raw-byte client without a recovery protocol needs a quiescent
+   target restart; an ordinary new request is not an implicit purge.
 5. Send replacement requests during a slow operation. Only the newest pending
    request may receive a response; the previous operation can retain side effects.
 6. Restart the controller while a response is pending and while computation is
