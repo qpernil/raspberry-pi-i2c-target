@@ -1,0 +1,9 @@
+/rx-write-controller
+/__pycache__/
+/.*.cmd
+/*.ko
+/*.mod
+/*.mod.c
+/*.o
+/Module.symvers
+/modules.order
