@@ -47,7 +47,7 @@
 		target = <&bsc_target>;
 		__dormant__ {
 			/* Active-low, open-drain response-ready output. */
-			/* 0x01 active-low | 0x40 open-drain. */
+			/* 0x01 active-low | 0x40 bias-disable; driver requests open-drain. */
 			ready-gpios = <&gpio 17 0x41>;
 		};
 	};
