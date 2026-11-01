@@ -1,0 +1,142 @@
+{
+  "recorded_at_utc": "2026-11-01T15:45:37.578109+00:00",
+  "status": "Slew limiting does not eliminate READY2-associated RX-only faults or the observed SCL disturbance",
+  "diagnostic_source_commit": "230206dbf95d4123a62a978bcbc3417b8c1d982c",
+  "fixture": {
+    "target": "Pi1 configure-once RX-only module, CR=0x205; IRQ + 300 us drain timer; no TX, response publication, READY operation or normal reconfiguration",
+    "controller": "same seed-91 raw vectors, adapter retries 0; stop at first failure; 1000 us plus 23 us per byte inter-write delay",
+    "READY2": "Pi2 GPIO17 push-pull pinctrl high/low loop; wiring unchanged, controller GPIO22/pin15",
+    "other_activity": "Both production target services stopped throughout comparison; Pi2 BSC quiesced; other GPIO modes retained",
+    "scope": "C1 SCL, C2 SDA, C3 READY2, C4 open-drain controller error marker via existing READY1 lead; 2 ns native samples",
+    "pad_control": "Pi2 Pi3B+ GPIO0-27 bank, 0x3f10002c; original 0x1b -> limited 0x0b -> original 0x1b; only bit 4 changed; 8 mA drive and input hysteresis preserved",
+    "restore_guard": "Independent 20 minute systemd restore timer installed before changing pads; cancelled only after original readback"
+  },
+  "baseline": {
+    "writes": 100,
+    "bytes": 142975,
+    "byte_exact": true
+  },
+  "phases": [
+    {
+      "name": "original-1",
+      "pad": "0x1b",
+      "successful_writes": 179,
+      "failing_write_number": 180,
+      "errno": 121,
+      "error": "Remote I/O/NACK; bus released high",
+      "received_bytes": 334184,
+      "received_is_exact_prefix": true,
+      "first_stream_difference": null,
+      "CR": "0x205",
+      "FR": "0x12",
+      "overruns": 0,
+      "underruns": 0,
+      "capture_drops": 0,
+      "short_14_write_snapshot_runs": 6,
+      "short_snapshot_runs_byte_exact": true,
+      "sampled_READY2_fall_90_10_ns": {
+        "n": 20,
+        "median": 5.999999830308411,
+        "min": 5.999999830308411,
+        "max": 7.999999773744548
+      },
+      "stable_low_SCL_backstep_V": {
+        "n": 13,
+        "median": 0.7500000111758713,
+        "min": 0.7041666771595678,
+        "max": 0.7958333451921744
+      },
+      "selected_failure_READY2_rise_10_90_ns": 5.999999830308411,
+      "selected_failure_SCL_at_READY2_rise_V": 0.8041666786496835,
+      "selected_failure_SCL_backstep_V": 0.3666666721304259
+    },
+    {
+      "name": "limited",
+      "pad": "0xb",
+      "successful_writes": 275,
+      "failing_write_number": 276,
+      "errno": 11,
+      "error": "Lost arbitration (kernel confirmed); SDA low, SCL high",
+      "received_bytes": 551241,
+      "received_is_exact_prefix": true,
+      "first_stream_difference": null,
+      "CR": "0x205",
+      "FR": "0x32",
+      "overruns": 0,
+      "underruns": 0,
+      "capture_drops": 0,
+      "short_14_write_snapshot_runs": 5,
+      "short_snapshot_runs_byte_exact": true,
+      "sampled_READY2_fall_90_10_ns": {
+        "n": 17,
+        "median": 7.999999773744548,
+        "min": 5.999999830308411,
+        "max": 7.999999773744548
+      },
+      "stable_low_SCL_backstep_V": {
+        "n": 11,
+        "median": 0.7875000117346642,
+        "min": 0.6916666769733033,
+        "max": 0.8125000121071939
+      },
+      "selected_failure_READY2_rise_10_90_ns": 7.999999773744548,
+      "selected_failure_SCL_at_READY2_rise_V": 0.9375000139698386,
+      "selected_failure_SCL_backstep_V": 0.2166666698952513
+    },
+    {
+      "name": "original-2",
+      "pad": "0x1b",
+      "successful_writes": 52,
+      "failing_write_number": 53,
+      "errno": 121,
+      "error": "Remote I/O/NACK; bus released high",
+      "received_bytes": 42373,
+      "received_is_exact_prefix": false,
+      "first_stream_difference": 42372,
+      "CR": "0x205",
+      "FR": "0x12",
+      "overruns": 0,
+      "underruns": 0,
+      "capture_drops": 0,
+      "short_14_write_snapshot_runs": 5,
+      "short_snapshot_runs_byte_exact": true,
+      "sampled_READY2_fall_90_10_ns": {
+        "n": 19,
+        "median": 7.999999773744548,
+        "min": 5.999999830308411,
+        "max": 7.999999773744548
+      },
+      "stable_low_SCL_backstep_V": {
+        "n": 8,
+        "median": 0.750000011175871,
+        "min": 0.7166666773458321,
+        "max": 0.8333333457509675
+      },
+      "selected_failure_READY2_rise_10_90_ns": 5.999999830308411,
+      "selected_failure_SCL_at_READY2_rise_V": 0.7375000109896064,
+      "selected_failure_SCL_backstep_V": 0.2916666710128384
+    }
+  ],
+  "interpretation": {
+    "established": "All three pulse runs fail; slew limiting does not resolve the fault. Each retained failure tail contains a READY2 rising edge during an SCL rise, with a non-monotonic excursion on SCL. Both READY2 polarities must be considered.",
+    "edge_effect": "READY2 rise in the selected failure records is approximately 6/8/6 ns (original/limited/restored); typical sampled falls remain 6-8 ns. The selected SCL backsteps are approximately 0.37/0.22/0.29 V. Coupling remains visible with limiting enabled.",
+    "limits": "One stop-on-error long run per pad setting, not failure-rate statistics. Selected edges occur at different SCL phases; a smaller dip in one record does not establish an overall reduction. 2 ns sample granularity limits edge-time comparisons. Probe skew, input thresholds, local grounds and the physical coupling path remain uncalibrated. Bank-wide pad control and stopped Pi2 service differ from concurrent HSM traffic. No concurrent authenticated/PQC qualification is implied.",
+    "next_physical_control": "Measure at the receiving GPIO with a short local reference, then isolate signal/return-path coupling with controlled READY wiring or source damping. Do not infer a driver-only cause from a clean-looking wide-timebase trace."
+  },
+  "restoration": {
+    "pad_final": "0x1b",
+    "restore_timer_cancelled": true,
+    "production_services_active": true,
+    "production_module_worker_profile_hashes_unchanged": true,
+    "diagnostic_module_and_overlay_removed": true,
+    "temporary_connector_stopped": true,
+    "post_restore_echoes_passed_per_target": 4,
+    "SDA_SCL_idle_high": true
+  },
+  "evidence": {
+    "archive": "slew-comparison-evidence.tar.gz",
+    "sha256": "3275e8b33b34c3e4747a8916122f73c7a548e88b69659975ffa485ba2184f427",
+    "selected_failure_plot": "failure-ready-rises.png",
+    "falling_edge_overlay": "slew-comparison.png"
+  }
+}

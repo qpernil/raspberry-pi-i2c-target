@@ -135,3 +135,30 @@ and stores `snapshot-request.bin`; an actual failure still stops and saves
 `failed-request.bin`. This permits like-for-like waveform snapshots when a tested
 setting has no failures. The marker cannot perturb the selected write because
 it is asserted after `write()` completes, and no subsequent writes are sent.
+
+## Measured slew-control limits
+
+The [slew comparison record](slew-validation.json) covers an original/limited/
+original control with the same RX-only fixture, vectors, cadence and READY2 pulse
+loop. Both production services are stopped throughout; Pi2 BSC is quiesced. The
+100-write unpulsed baseline is byte-exact, with zero overflow or capture drops.
+
+| Pi2 pad setting | Successful writes before failure | Failure | Selected READY2 rise | Selected SCL backstep |
+| --- | ---: | --- | ---: | ---: |
+| Original `0x1b` | 179 | Remote I/O/NACK | 6 ns | 0.37 V |
+| Limited `0x0b` | 275 | Lost arbitration, SDA low | 8 ns | 0.22 V |
+| Restored `0x1b` | 52 | Remote I/O/NACK | 6 ns | 0.29 V |
+
+The three retained failure tails contain a READY2 **rising** edge during an SCL
+rise, with a non-monotonic SCL excursion. Both READY2 polarities matter. The
+selected dip is smaller with limiting, but those edges occur at different clock
+phases; these samples do not establish a general amplitude or failure-rate
+improvement. All settings fail, typical sampled READY2 falls remain 6-8 ns, and
+coupling remains visible. Edge-time comparisons are limited by 2 ns sampling.
+
+Only the slew bit changes; drive strength remains 8 mA and input hysteresis stays
+enabled. This bank-wide software control does not replace receiver-local probing
+or controlled signal/return-path changes. Probe skew, local reference and receiver
+thresholds remain uncalibrated; concurrent HSM/PQC operation remains unqualified.
+The original pad value, production services and unchanged module/worker/profile
+hashes are verified after the test, and four ordinary echoes pass on each target.
