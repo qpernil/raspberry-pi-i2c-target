@@ -29,11 +29,15 @@ def main():
     a.add_argument('--limit-slew', type=pathlib.Path)
     a.add_argument('--set-drive', type=pathlib.Path)
     p.add_argument('--drive-ma', type=int, choices=range(2, 17, 2))
+    p.add_argument('--slew-limited', action='store_true',
+                   help='Also limit slew with --set-drive; preserve hysteresis')
     a.add_argument('--restore', type=pathlib.Path)
     a.add_argument('--self-test', action='store_true')
     args = p.parse_args()
     if (args.drive_ma is not None) != (args.set_drive is not None):
         p.error('--set-drive SNAPSHOT and --drive-ma MA must be used together')
+    if args.slew_limited and args.set_drive is None:
+        p.error('--slew-limited requires --set-drive SNAPSHOT and --drive-ma MA')
     if args.self_test:
         assert desired(0x1b, True) == 0x0b
         for v in range(32):
@@ -45,6 +49,9 @@ def main():
                 result = desired(v, False, drive)
                 assert result & 0x18 == v & 0x18
                 assert 2 * ((result & 7) + 1) == drive
+                combined = desired(v, True, drive)
+                assert combined & 0x18 == v & 0x08
+                assert 2 * ((combined & 7) + 1) == drive
         for invalid in [0, 1, 3, 18]:
             try:
                 desired(0x1b, False, invalid)
@@ -81,7 +88,7 @@ def main():
                     raise RuntimeError('Pad changed since snapshot or slew already limited')
                 if args.set_drive and before != original:
                     raise RuntimeError('Pad changed since snapshot')
-                after = desired(original, bool(args.limit_slew), args.drive_ma)
+                after = desired(original, bool(args.limit_slew or args.slew_limited), args.drive_ma)
                 struct.pack_into('<I', m, OFFSET, 0x5a000000 | after)
                 readback = struct.unpack_from('<I', m, OFFSET)[0] & FIELDS
                 if readback != after:
