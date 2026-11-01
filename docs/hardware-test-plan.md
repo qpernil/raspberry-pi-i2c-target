@@ -19,6 +19,18 @@ It reproduced with normal BSC control-register writes and controller READY edge
 reconfiguration removed. GPIO24 and direct wiring did not eliminate it. Capture
 READY2 with SDA/SCL before attributing its mechanism to driver or electrical effects.
 
+## Receive-only fault isolation
+
+The separate [configure-once RX diagnostic](../diagnostics/receive-only/README.md)
+reproduces READY2-triggered arbitration loss with TX disabled (`CR=0x205`), no
+response publication, no Pi1 READY operations and no per-request BSC configuration.
+A 100-write baseline is byte-exact; with pulses, write 119 fails after 118
+successes, with zero overruns or capture drops. Native 2 ns marker-triggered
+samples correlate request offset 952: expected `0xf3`, wire `0xf2`, target RX
+`0xf9`. READY2 falls during a disturbed SCL rising edge, consistent with an extra
+input sample and a receiver ACK one clock early. Probe/reference effects and the
+physical coupling path remain unresolved. See the [measured record](../diagnostics/receive-only/validation.json).
+
 ## Shared-HSM qualification limit
 
 Concurrent full HSM/PQC operation on a shared BSC bus remains unqualified.
