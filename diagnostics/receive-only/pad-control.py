@@ -6,8 +6,13 @@ OFFSET = 0x2c
 FIELDS = 0x1f
 SLEW_UNLIMITED = 0x10
 
-def desired(original, limited):
-    return (original & FIELDS) & (~SLEW_UNLIMITED if limited else FIELDS)
+def desired(original, limited, drive_ma=None):
+    value = (original & FIELDS) & (~SLEW_UNLIMITED if limited else FIELDS)
+    if drive_ma is not None:
+        if drive_ma not in range(2, 17, 2):
+            raise ValueError('Drive strength must be 2..16 mA in steps of 2')
+        value = (value & ~7) | (drive_ma // 2 - 1)
+    return value
 
 def identity():
     model = pathlib.Path('/proc/device-tree/model').read_bytes().rstrip(b'\0').decode()
@@ -22,19 +27,35 @@ def main():
     a.add_argument('--read', action='store_true')
     a.add_argument('--save', type=pathlib.Path)
     a.add_argument('--limit-slew', type=pathlib.Path)
+    a.add_argument('--set-drive', type=pathlib.Path)
+    p.add_argument('--drive-ma', type=int, choices=range(2, 17, 2))
     a.add_argument('--restore', type=pathlib.Path)
     a.add_argument('--self-test', action='store_true')
     args = p.parse_args()
+    if (args.drive_ma is not None) != (args.set_drive is not None):
+        p.error('--set-drive SNAPSHOT and --drive-ma MA must be used together')
     if args.self_test:
         assert desired(0x1b, True) == 0x0b
         for v in range(32):
             assert desired(v, True) & 0xf == v & 0xf
             assert desired(v, False) == v
             assert desired(v, True) ^ v in (0, 16)
-        print('PASS: only slew bit changes; drive and hysteresis preserved')
+        for v in range(32):
+            for drive in range(2, 17, 2):
+                result = desired(v, False, drive)
+                assert result & 0x18 == v & 0x18
+                assert 2 * ((result & 7) + 1) == drive
+        for invalid in [0, 1, 3, 18]:
+            try:
+                desired(0x1b, False, invalid)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError('Invalid drive accepted')
+        print('PASS: independent slew/drive fields; hysteresis and other fields preserved')
         return
     ident = identity()
-    modifying = args.limit_slew or args.restore
+    modifying = args.limit_slew or args.set_drive or args.restore
     snapshot = None
     if modifying:
         snapshot = json.loads(modifying.read_text())
@@ -58,7 +79,9 @@ def main():
                     raise RuntimeError('Invalid saved pad value')
                 if args.limit_slew and (before != original or not original & SLEW_UNLIMITED):
                     raise RuntimeError('Pad changed since snapshot or slew already limited')
-                after = desired(original, bool(args.limit_slew))
+                if args.set_drive and before != original:
+                    raise RuntimeError('Pad changed since snapshot')
+                after = desired(original, bool(args.limit_slew), args.drive_ma)
                 struct.pack_into('<I', m, OFFSET, 0x5a000000 | after)
                 readback = struct.unpack_from('<I', m, OFFSET)[0] & FIELDS
                 if readback != after:

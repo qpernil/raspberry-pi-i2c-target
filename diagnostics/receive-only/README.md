@@ -162,3 +162,19 @@ or controlled signal/return-path changes. Probe skew, local reference and receiv
 thresholds remain uncalibrated; concurrent HSM/PQC operation remains unqualified.
 The original pad value, production services and unchanged module/worker/profile
 hashes are verified after the test, and four ordinary echoes pass on each target.
+
+## Independent drive-strength control
+
+`pad-control.py --set-drive SNAPSHOT --drive-ma 4` sets the Pi3 GPIO0-27 bank
+to 4 mA nominal drive while preserving the saved slew and input-hysteresis fields.
+It requires the current fields to match the snapshot, accepts only documented
+2 mA steps from 2 through 16 mA, and uses the same saved-value restore/readback
+contract. Use an independent restore timer and quiesce unrelated bank outputs.
+This changes READY and BSC SDA/SCL drive together; it cannot isolate READY alone.
+Drive strength describes output capability, not a current limit. Preserve input
+hysteresis, and verify low levels and timing under the actual combined pull-ups.
+
+Production READY is active-low open-drain, implemented on these Pi3s by output-low
+and input/release states. The fixed-direction pulse fixture instead drives both
+levels. Its rising-edge drive/slew results therefore do not directly characterize
+the production released rise, which depends on pull-up resistance and capacitance.
