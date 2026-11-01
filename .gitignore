@@ -1,5 +1,6 @@
 /target/
 .DS_Store
+__pycache__/
 
 # Out-of-tree kernel build products
 kernel/.*.cmd
