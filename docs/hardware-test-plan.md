@@ -33,6 +33,17 @@ samples correlate request offset 952: expected `0xf3`, wire `0xf2`, target RX
 input sample and a receiver ACK one clock early. Probe/reference effects and the
 physical coupling path remain unresolved. See the [measured record](../diagnostics/receive-only/validation.json).
 
+A bank-wide Pi2 slew control retains 8 mA drive and input hysteresis while changing
+only the slew bit (`0x1b -> 0x0b -> 0x1b`). All three RX-only pulse runs fail, after
+179, 275 and 52 successful writes respectively. The limited run still loses
+arbitration and leaves SDA low. Each failure tail contains a READY2 rising edge
+during a disturbed SCL rise; both READY2 polarities need investigation. Selected
+READY2 rise times are 6/8/6 ns and SCL backsteps are 0.37/0.22/0.29 V, with 2 ns
+sampling and different edge phases. This does not establish a failure-rate or
+general dip reduction. Original pad fields and both services are restored; four
+echoes per target pass. See the [slew record](../diagnostics/receive-only/slew-validation.json)
+for the finite controls, restoration checks and measurement limits.
+
 ## Shared-HSM qualification limit
 
 Concurrent full HSM/PQC operation on a shared BSC bus remains unqualified.
